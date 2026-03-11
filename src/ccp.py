@@ -1,7 +1,9 @@
 # MMM BROT (Bio Sauerteigkruste)
-# Brotpause?
+# BROTPAUSE??
 
+import datetime
 import os
+from pathlib import Path
 from time import time
 
 import click
@@ -12,32 +14,108 @@ from tqdm import tqdm
 
 from model import ByteMaster90, LongMaster
 
-
-EPOCHS = 10
+EPOCHS = 1000
 CHUNK_SIZE = 1024
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
-def bitify(chunk: bytes) -> torch.Tensor:
-    chunk = np.frombuffer(chunk, dtype=np.uint8)
-    chunk = np.unpackbits(chunk)
-    chunk = torch.from_numpy(chunk.astype(np.float32))
-    return chunk.to(DEVICE)
+class FileLoader:
+    def __init__(self, path: Path):
+        self.path = path
+        self.file = open(path, 'rb')
+        self.file_size = os.path.getsize(path)
+
+        self.pos = None
+        self.previous_chunk = None
+
+    def __enter__(self):
+        if self.file_size < CHUNK_SIZE:
+            raise ValueError("File is smaller than chunk size")
+
+        # reset the file and read the first chunk
+        self.file.seek(0)
+        self.pos = CHUNK_SIZE
+
+        self.previous_chunk = self.file.read(CHUNK_SIZE)
+        self.previous_chunk = self.norm_as_bytes(self.previous_chunk)
+
+    def __exit__(self, *args, **kwargs):
+        self.pos = CHUNK_SIZE
+
+    def norm_as_bytes(self, chunk: bytes) -> torch.Tensor:
+        # load chunk as floats
+        chunk = np.frombuffer(chunk, dtype=np.uint8)
+        chunk = chunk.astype(np.float32)
+        # normalize to [0, 1]
+        chunk /= 255
+        # convert to tensor
+        chunk = torch.from_numpy(chunk)
+
+        # get index of every byte in chunk
+        indexes = np.arange(self.pos, self.pos + CHUNK_SIZE, dtype=np.float32)
+        # normalize to [0, 1]
+        indexes /= self.file_size
+        # convert to tensor
+        indexes = torch.from_numpy(indexes)
+
+        # join tensors [a0, b0, a1, b1, ... ]
+        normed = torch.stack((chunk, indexes), dim=1).flatten()
+        return normed.to(DEVICE)
+
+    @staticmethod
+    def as_bits(raw_chunk: bytes) -> torch.Tensor:
+        chunk = np.frombuffer(raw_chunk, dtype=np.uint8)
+
+        chunk = np.unpackbits(chunk)
+        chunk = chunk.astype(np.float32)
+
+        chunk = torch.from_numpy(chunk)
+        return chunk.to(DEVICE)
+
+    def get_batch(self, num_chunks: int = 1024) -> tuple[torch.Tensor, torch.Tensor] | None:
+        # if we are at the end of the file, return None
+        if self.pos >= self.file_size:
+            return None
+
+        inputs = []
+        targets = []
+
+        # collect all chunks
+        for _ in range(num_chunks):
+            raw_chunk = self.file.read(CHUNK_SIZE)
+            self.pos += CHUNK_SIZE
+
+            # skip the last, (incomplete) chunk
+            if len(raw_chunk) < CHUNK_SIZE:
+                break
+
+            target_chunk = self.as_bits(raw_chunk)
+            targets.append(target_chunk)
+
+            inputs.append(self.previous_chunk)
+            self.previous_chunk = self.norm_as_bytes(raw_chunk)
+
+        # convert to tensors
+        inputs = torch.stack(inputs).to(DEVICE)
+        targets = torch.stack(targets).to(DEVICE)
+
+        return inputs, targets
 
 
-def byteify(chunk: bytes) -> torch.Tensor:
-    chunk = np.frombuffer(chunk, dtype=np.uint8)
-    chunk = chunk.astype(np.float32)
-    chunk /= 255
-    chunk = torch.from_numpy(chunk)
-    return chunk.to(DEVICE)
+class FilePrinter:
+    def __init__(self, log_path: Path):
+        self.log_path = log_path
+        self.log_file = open(log_path, 'a')
+
+        print(f"Logging to {log_path}")
+        print(f"\n{datetime.datetime.now().strftime('%H:%M %d.%m.%Y')}:\n", file=self.log_file, flush=True)
+
+    def __call__(self, *args, **kwargs):
+        print(*args, **kwargs)
+        print(*args, file=self.log_file, flush=True, **kwargs)
 
 
-def indexify(total: int, chunk_start_pos: int, chunk: torch.Tensor) -> torch.Tensor:
-    indexes = np.arange(chunk_start_pos, chunk_start_pos + CHUNK_SIZE, dtype=np.float32)
-    indexes = indexes / total
-    indexes = torch.stack((chunk, torch.from_numpy(indexes).to(DEVICE)), dim=1).flatten()
-    return indexes
+LOGGER = FilePrinter(Path('log.txt'))
 
 
 @click.command()
@@ -49,7 +127,7 @@ def main(input_path):
 
     # print number of parameters
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Model has {num_params:,} parameters")
+    LOGGER(f"Model has {num_params:,} parameters")
 
     # define optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=.001, weight_decay=0.)
@@ -58,51 +136,39 @@ def main(input_path):
     criterion = torch.nn.BCELoss()
     criterion.to(DEVICE)
 
+    # open the file to compress
+    file_loader = FileLoader(input_path)
+
     # train
     train_start = time()
 
-    with open(input_path, 'rb') as f:
-        # get file size
-        file_size = os.path.getsize(input_path)
-        print(f"File has {file_size:,} B")
+    # create progressbar
+    LOGGER(f"File size: {file_loader.file_size / 1024:,.0f} KiB")
+    bar = tqdm(total=file_loader.file_size, unit='B', unit_scale=True)
 
-        # create progressbar
-        bar = tqdm(total=file_size, unit='B', unit_scale=True)
+    for epoch in range(EPOCHS):
+        # reset epoch variables
+        LOGGER(f"EPOCH: {epoch + 1}")
+        epoch_loss = 0.
+        epoch_start = time()
+        bar.reset()
 
-        for epoch in range(EPOCHS):
-            # reset epoch variables
-            print(f"EPOCH: {epoch+1}")
-            epoch_loss = 0.
-            epoch_start = time()
+        # (re-)initialize model state
+        h, c = model.init_state()
+        h, c = h.to(DEVICE), c.to(DEVICE)
 
-            f.seek(0)
-            total_read = 0
-            bar.reset()
+        with file_loader:
+            while batch := file_loader.get_batch():
+                inputs, targets = batch
 
-            # read first chunk
-            previous_chunk = f.read(CHUNK_SIZE)
-            previous_chunk = byteify(previous_chunk)
-
-            # (re-)initialize model state
-            h, c = model.init_state()
-
-            while new_chunk := f.read(CHUNK_SIZE):
-                bar.update(CHUNK_SIZE)
-                total_read += CHUNK_SIZE
-
-                if len(new_chunk) < CHUNK_SIZE:
-                    break
-
-                # bitify new chunk
-                new_chunk = new_chunk
+                bar.update(CHUNK_SIZE * len(inputs))
 
                 # predict next chunk
-                previous_chunk = indexify(file_size, total_read, previous_chunk)
-                predicted_chunk, h, c = model(previous_chunk, h, c)
+                predicted_chunks, h, c = model(inputs, h, c)
                 h, c = h.detach(), c.detach()
 
                 # calculate loss
-                loss = criterion(predicted_chunk, bitify(new_chunk))
+                loss = criterion(predicted_chunks, targets)
                 epoch_loss += loss.item()
 
                 # backpropagate
@@ -112,64 +178,44 @@ def main(input_path):
                 optimizer.step()
                 optimizer.zero_grad()
 
-                # update previous chunk
-                previous_chunk = byteify(new_chunk)
-
-            print(f"Epoch loss: {epoch_loss:.5f}, epoch time: {time()-epoch_start:.2f} s, total time: {(time()-train_start) / 60:.2f} m")
-            evaluate(input_path, model)
+        LOGGER(
+            f"Epoch loss: {epoch_loss:.5f}, epoch time: {time() - epoch_start:.2f} s, total time: {(time() - train_start) / 60:.2f} m")
+        evaluate(input_path, model)
 
 
 def evaluate(input_path: str, model: torch.nn.Module):
     model.eval()
 
-    with open(input_path, 'rb') as f:
-        file_size = os.path.getsize(input_path)
-        total_read = 0
+    file_loader = FileLoader(input_path)
 
-        with torch.no_grad():
-            # read first chunk
-            previous_chunk = f.read(CHUNK_SIZE)
-            previous_chunk = byteify(previous_chunk)
-
+    with torch.no_grad():
+        with file_loader:
             total_correct = 0
             total_bits = 0
 
             # initialize model state
             h, c = model.init_state()
+            h, c = h.to(DEVICE), c.to(DEVICE)
 
-            while new_chunk := f.read(CHUNK_SIZE):
-                if len(new_chunk) < CHUNK_SIZE:
-                    break
-                total_read += CHUNK_SIZE
+            while batch := file_loader.get_batch():
+                inputs, targets = batch
 
-                # predict new chunk
-                previous_chunk = indexify(file_size, total_read, previous_chunk)
-                predicted_chunk, h, c = model(previous_chunk, h, c)
-                predicted_chunk = torch.round(predicted_chunk)
-                predicted_chunk = predicted_chunk.numpy()
+                # predict next chunks
+                predicted_chunks, h, c = model(inputs, h, c)
+                predicted_chunks = torch.round(predicted_chunks)
+                predicted_chunks = predicted_chunks.cpu().numpy()
 
-                print(f"Plausible Std: {np.std(predicted_chunk)[0]:.3f}", end=', ')
-
-                # get new chunk
-                new_chunk = new_chunk
-
-                # update previous chunk
-                previous_chunk = byteify(new_chunk)
-
-                # convert to numpy
-                new_chunk = bitify(new_chunk).numpy()
+                # convert targets to numpy
+                targets = targets.cpu().numpy()
 
                 # calculate accuracy
-                total_correct += np.sum(new_chunk == predicted_chunk)
-                total_bits += len(new_chunk)
+                total_correct += np.sum(targets == predicted_chunks)
+                total_bits += len(targets) * len(targets[0])
 
-            print()
-            print(f"{total_bits:,} Bits, {total_correct:,} correct, {total_correct / total_bits:.3%}")
+            LOGGER(f"{total_bits:,} Bits, {total_correct:,} correct, {total_correct / total_bits:.3%}")
 
     model.train()
 
 
 if __name__ == '__main__':
     main()
-
-
