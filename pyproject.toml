@@ -1,0 +1,12 @@
+[project]
+name = "cool-compression"
+version = "0.1.0"
+description = "CCP for every file on every machine!"
+requires-python = ">=3.14"
+dependencies = [
+    "click>=8.3.1",
+    "numpy>=2.4.3",
+    "scikit-learn>=1.8.0",
+    "torch>=2.10.0",
+    "tqdm>=4.67.3",
+]
