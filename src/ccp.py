@@ -7,7 +7,6 @@ from pathlib import Path
 from time import time
 
 import click
-import sklearn
 import torch
 import numpy as np
 from tqdm import tqdm
@@ -15,7 +14,8 @@ from tqdm import tqdm
 from model import ByteMaster90, LongMaster
 
 EPOCHS = 1000
-CHUNK_SIZE = 1024
+CHUNK_SIZE = 128
+CHUNKS_PER_BATCH = 4096
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
@@ -24,6 +24,7 @@ class FileLoader:
         self.path = path
         self.file = open(path, 'rb')
         self.file_size = os.path.getsize(path)
+        self.chunks_per_batch = CHUNKS_PER_BATCH
 
         self.pos = None
         self.previous_chunk = None
@@ -51,7 +52,7 @@ class FileLoader:
         # convert to tensor
         chunk = torch.from_numpy(chunk)
 
-        # get index of every byte in chunk
+        # get index of every byte in the chunk
         indexes = np.arange(self.pos, self.pos + CHUNK_SIZE, dtype=np.float32)
         # normalize to [0, 1]
         indexes /= self.file_size
@@ -72,7 +73,7 @@ class FileLoader:
         chunk = torch.from_numpy(chunk)
         return chunk.to(DEVICE)
 
-    def get_batch(self, num_chunks: int = 1024) -> tuple[torch.Tensor, torch.Tensor] | None:
+    def get_batch(self) -> tuple[torch.Tensor, torch.Tensor] | None:
         # if we are at the end of the file, return None
         if self.pos >= self.file_size:
             return None
@@ -81,7 +82,7 @@ class FileLoader:
         targets = []
 
         # collect all chunks
-        for _ in range(num_chunks):
+        for _ in range(self.chunks_per_batch):
             raw_chunk = self.file.read(CHUNK_SIZE)
             self.pos += CHUNK_SIZE
 
@@ -178,15 +179,14 @@ def main(input_path):
                 optimizer.step()
                 optimizer.zero_grad()
 
-        LOGGER(
-            f"Epoch loss: {epoch_loss:.5f}, epoch time: {time() - epoch_start:.2f} s, total time: {(time() - train_start) / 60:.2f} m")
+        LOGGER(f"\nEpoch loss: {epoch_loss:.5f}, epoch time: {time() - epoch_start:.2f} s, total time: {(time() - train_start) / 60:.2f} m")
         evaluate(input_path, model)
 
 
 def evaluate(input_path: str, model: torch.nn.Module):
     model.eval()
 
-    file_loader = FileLoader(input_path)
+    file_loader = FileLoader(Path(input_path))
 
     with torch.no_grad():
         with file_loader:

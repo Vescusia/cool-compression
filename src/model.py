@@ -30,18 +30,15 @@ class LongMaster(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.input_size = 2048
-        self.hidden_size = 256
+        self.chunk_size = 128
+        self.input_size = self.chunk_size * 2
+        self.output_size = self.chunk_size * 8
+        self.hidden_size = 64
         self.num_layers = 1
 
         self.lstm = nn.LSTM(input_size=self.input_size, hidden_size=self.hidden_size, num_layers=self.num_layers)
 
-        self.linear = nn.Sequential(
-            nn.Linear(self.hidden_size, 128),
-            nn.LeakyReLU(),
-            nn.Linear(128, 8192),
-        )
-
+        self.linear = nn.Linear(self.hidden_size, self.output_size)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x, h, c):
