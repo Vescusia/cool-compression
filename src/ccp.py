@@ -17,10 +17,10 @@ import lib
 from file_loader import BatchedDataLoader
 
 
-BYTES_PER_STEP = 8192
+BYTES_PER_STEP = 2 ** 15
 CHUNKS_PER_BATCH = BYTES_PER_STEP // lib.CHUNK_SIZE
 EPOCHS = 2000
-OPTIMIZER_SWAP_EPOCHS = 300
+OPTIMIZER_SWAP_EPOCHS = 50
 
 
 class FilePrinter:
@@ -49,7 +49,9 @@ def main(input_path):
 
     # print number of parameters
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    LOGGER(f"Model has {num_params:,} parameters")
+    num_lstm_params = sum(p.numel() for p in model.lstm.parameters() if p.requires_grad)
+    num_res_net_params = sum(p.numel() for p in model.res_net.parameters() if p.requires_grad)
+    LOGGER(f"Model parameters: {num_params:,} ({num_lstm_params:,} LSTM, {num_res_net_params:,} ResNet)")
 
     # define fast/first optimizer
     optim = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.)
@@ -80,7 +82,16 @@ def main(input_path):
             h, c = model.init_state()
             h, c = h.to(lib.DEVICE), c.to(lib.DEVICE)
 
+            # keep track of time spent doing stuff
+            total_batch_get_time = 0.
+            total_train_time = 0.
+
+            start_batch_get = time()
             while batch := file_loader.get_batch():
+                # keep track of time spent doing stuff
+                total_batch_get_time += time() - start_batch_get
+                start_train = time()
+
                 inputs, targets = batch
 
                 bar.update(lib.CHUNK_SIZE * len(inputs))
@@ -104,11 +115,18 @@ def main(input_path):
                 if epoch == OPTIMIZER_SWAP_EPOCHS:
                     optim = torch.optim.SGD(model.parameters(), lr=0.01, weight_decay=0.)
 
-            LOGGER(f"\nEpoch: {epoch}, "
-                   f"{'Fast' if epoch < OPTIMIZER_SWAP_EPOCHS else 'Slow'} optimizer, "
-                   f"Epoch loss: {epoch_loss:.2f}, "
-                   f"Epoch time: {time() - epoch_start:.2f} s, "
-                   f"Total time: {(time() - train_start) / 60:.2f} m")
+                # keep track of time spent doing stuff
+                total_train_time += time() - start_train
+                start_batch_get = time()
+
+            LOGGER(
+                f"\nEpoch: {epoch}, "
+                f"{'Fast' if epoch < OPTIMIZER_SWAP_EPOCHS else 'Slow'} optimizer, "
+                f"Epoch loss: {epoch_loss:.2f}, "
+                f"Epoch time: {time() - epoch_start:.2f} s, "
+                f"Total time: {(time() - train_start) / 60:.2f} m"
+                f"Batch get time: {total_batch_get_time / total_train_time:.2%}, "
+                   )
 
             evaluate(input_path, model)
 

@@ -22,6 +22,7 @@ def compress(file_path: Path, model_path: Path = None):
                 inputs, targets = batch
 
                 # predict next chunks
+                inputs = torch.unsqueeze(inputs, 0)
                 predicted_chunks, h, c = model(inputs, h, c)
                 predicted_chunks = torch.round(predicted_chunks)
                 predicted_chunks = predicted_chunks.cpu().numpy()
