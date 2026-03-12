@@ -20,7 +20,7 @@ from file_loader import BatchedDataLoader
 BYTES_PER_STEP = 2 ** 15
 CHUNKS_PER_BATCH = BYTES_PER_STEP // lib.CHUNK_SIZE
 EPOCHS = 2000
-OPTIMIZER_SWAP_EPOCHS = 50
+OPTIMIZER_SWAP_EPOCHS = 500
 
 
 class FilePrinter:
