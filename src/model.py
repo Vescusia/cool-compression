@@ -1,6 +1,8 @@
 import torch
 from torch import nn
 
+import lib
+
 
 class ByteMaster90(nn.Module):
     def __init__(self):
@@ -30,13 +32,18 @@ class LongMaster(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.chunk_size = 128
-        self.input_size = self.chunk_size * 2
-        self.output_size = self.chunk_size * 8
-        self.hidden_size = 64
+        self.input_size = lib.CHUNK_SIZE * 2  # input also contains indexes
+        self.output_size = lib.CHUNK_SIZE * 8  # output is in Bits
+
+        self.hidden_size = 32
         self.num_layers = 1
 
-        self.lstm = nn.LSTM(input_size=self.input_size, hidden_size=self.hidden_size, num_layers=self.num_layers)
+        self.lstm = nn.LSTM(
+            input_size=self.input_size,
+            hidden_size=self.hidden_size,
+            num_layers=self.num_layers,
+            bidirectional=False,
+        )
 
         self.linear = nn.Linear(self.hidden_size, self.output_size)
         self.sigmoid = nn.Sigmoid()
@@ -49,4 +56,4 @@ class LongMaster(nn.Module):
         return x, h, c
 
     def init_state(self):
-        return torch.zeros(self.num_layers, self.hidden_size), torch.zeros(self.num_layers, self.hidden_size)
+        return torch.rand(self.num_layers, self.hidden_size), torch.zeros(self.num_layers, self.hidden_size)

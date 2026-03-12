@@ -1,8 +1,7 @@
-# MMM BROT (Bio Sauerteigkruste)
+# MMM BROT (Bio Brötchen????)
 # BROTPAUSE??
 
 import datetime
-import os
 from pathlib import Path
 from time import time
 
@@ -10,97 +9,18 @@ import click
 import torch
 import numpy as np
 from tqdm import tqdm
+import pytorch_optimizer
 
-from model import ByteMaster90, LongMaster
-
-EPOCHS = 1000
-CHUNK_SIZE = 128
-CHUNKS_PER_BATCH = 4096
-DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+import model_manager
+from model import LongMaster
+import lib
+from file_loader import BatchedDataLoader
 
 
-class FileLoader:
-    def __init__(self, path: Path):
-        self.path = path
-        self.file = open(path, 'rb')
-        self.file_size = os.path.getsize(path)
-        self.chunks_per_batch = CHUNKS_PER_BATCH
-
-        self.pos = None
-        self.previous_chunk = None
-
-    def __enter__(self):
-        if self.file_size < CHUNK_SIZE:
-            raise ValueError("File is smaller than chunk size")
-
-        # reset the file and read the first chunk
-        self.file.seek(0)
-        self.pos = CHUNK_SIZE
-
-        self.previous_chunk = self.file.read(CHUNK_SIZE)
-        self.previous_chunk = self.norm_as_bytes(self.previous_chunk)
-
-    def __exit__(self, *args, **kwargs):
-        self.pos = CHUNK_SIZE
-
-    def norm_as_bytes(self, chunk: bytes) -> torch.Tensor:
-        # load chunk as floats
-        chunk = np.frombuffer(chunk, dtype=np.uint8)
-        chunk = chunk.astype(np.float32)
-        # normalize to [0, 1]
-        chunk /= 255
-        # convert to tensor
-        chunk = torch.from_numpy(chunk)
-
-        # get index of every byte in the chunk
-        indexes = np.arange(self.pos, self.pos + CHUNK_SIZE, dtype=np.float32)
-        # normalize to [0, 1]
-        indexes /= self.file_size
-        # convert to tensor
-        indexes = torch.from_numpy(indexes)
-
-        # join tensors [a0, b0, a1, b1, ... ]
-        normed = torch.stack((chunk, indexes), dim=1).flatten()
-        return normed.to(DEVICE)
-
-    @staticmethod
-    def as_bits(raw_chunk: bytes) -> torch.Tensor:
-        chunk = np.frombuffer(raw_chunk, dtype=np.uint8)
-
-        chunk = np.unpackbits(chunk)
-        chunk = chunk.astype(np.float32)
-
-        chunk = torch.from_numpy(chunk)
-        return chunk.to(DEVICE)
-
-    def get_batch(self) -> tuple[torch.Tensor, torch.Tensor] | None:
-        # if we are at the end of the file, return None
-        if self.pos >= self.file_size:
-            return None
-
-        inputs = []
-        targets = []
-
-        # collect all chunks
-        for _ in range(self.chunks_per_batch):
-            raw_chunk = self.file.read(CHUNK_SIZE)
-            self.pos += CHUNK_SIZE
-
-            # skip the last, (incomplete) chunk
-            if len(raw_chunk) < CHUNK_SIZE:
-                break
-
-            target_chunk = self.as_bits(raw_chunk)
-            targets.append(target_chunk)
-
-            inputs.append(self.previous_chunk)
-            self.previous_chunk = self.norm_as_bytes(raw_chunk)
-
-        # convert to tensors
-        inputs = torch.stack(inputs).to(DEVICE)
-        targets = torch.stack(targets).to(DEVICE)
-
-        return inputs, targets
+BYTES_PER_STEP = 8192
+CHUNKS_PER_BATCH = BYTES_PER_STEP // lib.CHUNK_SIZE
+EPOCHS = 2000
+OPTIMIZER_SWAP_EPOCHS = 300
 
 
 class FilePrinter:
@@ -117,6 +37,7 @@ class FilePrinter:
 
 
 LOGGER = FilePrinter(Path('log.txt'))
+LOGGER(f"Chunks per batch: {CHUNKS_PER_BATCH:,}")
 
 
 @click.command()
@@ -124,45 +45,45 @@ LOGGER = FilePrinter(Path('log.txt'))
 def main(input_path):
     # create model
     model = LongMaster()
-    model.to(DEVICE)
+    model.to(lib.DEVICE)
 
     # print number of parameters
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     LOGGER(f"Model has {num_params:,} parameters")
 
-    # define optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=.001, weight_decay=0.)
+    # define fast/first optimizer
+    optim = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.)
 
     # define loss function
     criterion = torch.nn.BCELoss()
-    criterion.to(DEVICE)
+    criterion.to(lib.DEVICE)
 
     # open the file to compress
-    file_loader = FileLoader(input_path)
+    file_loader = BatchedDataLoader(input_path, CHUNKS_PER_BATCH)
 
     # train
     train_start = time()
 
     # create progressbar
-    LOGGER(f"File size: {file_loader.file_size / 1024:,.0f} KiB")
+    LOGGER(f"File size: {file_loader.file_size:,.0f} B")
     bar = tqdm(total=file_loader.file_size, unit='B', unit_scale=True)
 
-    for epoch in range(EPOCHS):
-        # reset epoch variables
-        LOGGER(f"EPOCH: {epoch + 1}")
-        epoch_loss = 0.
-        epoch_start = time()
-        bar.reset()
+    try:
+        for epoch in range(EPOCHS):
+            # reset epoch variables
+            epoch_loss = 0.
+            epoch_start = time()
+            bar.reset()
+            file_loader.reset()
 
-        # (re-)initialize model state
-        h, c = model.init_state()
-        h, c = h.to(DEVICE), c.to(DEVICE)
+            # (re-)initialize model state
+            h, c = model.init_state()
+            h, c = h.to(lib.DEVICE), c.to(lib.DEVICE)
 
-        with file_loader:
             while batch := file_loader.get_batch():
                 inputs, targets = batch
 
-                bar.update(CHUNK_SIZE * len(inputs))
+                bar.update(lib.CHUNK_SIZE * len(inputs))
 
                 # predict next chunk
                 predicted_chunks, h, c = model(inputs, h, c)
@@ -175,44 +96,60 @@ def main(input_path):
                 # backpropagate
                 loss.backward()
 
-                # optimize
-                optimizer.step()
-                optimizer.zero_grad()
+                # step
+                optim.step(lambda: loss)
+                optim.zero_grad()
 
-        LOGGER(f"\nEpoch loss: {epoch_loss:.5f}, epoch time: {time() - epoch_start:.2f} s, total time: {(time() - train_start) / 60:.2f} m")
-        evaluate(input_path, model)
+                # swap to slow optimizer
+                if epoch == OPTIMIZER_SWAP_EPOCHS:
+                    optim = torch.optim.SGD(model.parameters(), lr=0.01, weight_decay=0.)
+
+            LOGGER(f"\nEpoch: {epoch}, "
+                   f"{'Fast' if epoch < OPTIMIZER_SWAP_EPOCHS else 'Slow'} optimizer, "
+                   f"Epoch loss: {epoch_loss:.2f}, "
+                   f"Epoch time: {time() - epoch_start:.2f} s, "
+                   f"Total time: {(time() - train_start) / 60:.2f} m")
+
+            evaluate(input_path, model)
+
+    except (Exception, KeyboardInterrupt) as e:
+        LOGGER("Training stopped, saving model...")
+
+        model_manager.save_model(model, Path('models'))
+        model_manager.save_model_state_dict(model, Path('models'))
+
+        raise e
 
 
 def evaluate(input_path: str, model: torch.nn.Module):
     model.eval()
 
-    file_loader = FileLoader(Path(input_path))
+    file_loader = BatchedDataLoader(Path(input_path), CHUNKS_PER_BATCH)
 
     with torch.no_grad():
-        with file_loader:
-            total_correct = 0
-            total_bits = 0
+        total_correct = 0
+        total_bits = 0
 
-            # initialize model state
-            h, c = model.init_state()
-            h, c = h.to(DEVICE), c.to(DEVICE)
+        # initialize model state
+        h, c = model.init_state()
+        h, c = h.to(lib.DEVICE), c.to(lib.DEVICE)
 
-            while batch := file_loader.get_batch():
-                inputs, targets = batch
+        while batch := file_loader.get_batch():
+            inputs, targets = batch
 
-                # predict next chunks
-                predicted_chunks, h, c = model(inputs, h, c)
-                predicted_chunks = torch.round(predicted_chunks)
-                predicted_chunks = predicted_chunks.cpu().numpy()
+            # predict next chunks
+            predicted_chunks, h, c = model(inputs, h, c)
+            predicted_chunks = torch.round(predicted_chunks)
+            predicted_chunks = predicted_chunks.cpu().numpy()
 
-                # convert targets to numpy
-                targets = targets.cpu().numpy()
+            # convert targets to numpy
+            targets = targets.cpu().numpy()
 
-                # calculate accuracy
-                total_correct += np.sum(targets == predicted_chunks)
-                total_bits += len(targets) * len(targets[0])
+            # calculate accuracy
+            total_correct += np.sum(targets == predicted_chunks)
+            total_bits += len(targets) * len(targets[0])
 
-            LOGGER(f"{total_bits:,} Bits, {total_correct:,} correct, {total_correct / total_bits:.3%}")
+        LOGGER(f"{total_bits:,} Bits, {total_correct:,} correct, {total_correct / total_bits:.3%}")
 
     model.train()
 
