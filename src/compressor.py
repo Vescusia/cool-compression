@@ -1,15 +1,11 @@
-import lib
 from model import LongMaster
 from model_manager import load_model, load_model_with_state_dict
 from pathlib import Path
 import torch
 from file_loader import ParallelLoader
-import file_loader
 import os
-import lib
 import numpy as np
 import tqdm
-import time
 
 
 def compress(file_path: Path, model_path: Path = None):
@@ -91,7 +87,7 @@ def compress(file_path: Path, model_path: Path = None):
     # print(relative_indexes)
     bar.close()
 
-    #counter = 0
+    # counter = 0
     mean = np.mean([np.mean(batch_array) for batch_array in relative_indexes])
     print("mean: ", mean)
     print("std: ", np.std([np.std(batch_array) for batch_array in relative_indexes]))
@@ -103,5 +99,3 @@ def compress(file_path: Path, model_path: Path = None):
 
 if __name__ == "__main__":
     compress(Path("./data/log.txt"), Path("models/model_2026_03.13_13-46.pt"))
-
-

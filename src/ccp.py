@@ -17,10 +17,10 @@ import lib
 from file_loader import ParallelLoader
 
 
-BYTES_PER_STEP = 2 ** 15
-EPOCHS = 1000
-OPTIMIZER_SWAP_EPOCHS = 100
-EVAL_EVERY_EPOCHS = 20
+BYTES_PER_STEP = 2 ** 16
+EPOCHS = 5000
+OPTIMIZER_SWAP_EPOCHS = 500
+EVAL_EVERY_EPOCHS = 50
 VISUALIZE_MODEL = False  # NEEDS GRAPHVIZ!!
 
 
@@ -57,8 +57,8 @@ def main(file_path):
     LOGGER(f"Model parameters: {num_params:,} ({num_lstm_params:,} LSTM, {num_res_net_params:,} ResNet)")
 
     # define fast/first optimizer
-    # optim = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.)
-    optim = torch.optim.LBFGS(model.parameters(), lr=1., max_iter=30)
+    optim = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=0.)
+    # optim = torch.optim.LBFGS(model.parameters(), lr=1., max_iter=30)
 
     # define loss function
     criterion = torch.nn.BCELoss()
@@ -92,6 +92,7 @@ def main(file_path):
             total_train_time = 0.
             start_batch_get = time()
 
+            # train one the complete file once
             while batch := file_loader.get_chunks():
                 # keep track of time spent doing stuff
                 total_batch_get_time += time() - start_batch_get
@@ -118,7 +119,7 @@ def main(file_path):
 
                 # swap to slow optimizer
                 if epoch == OPTIMIZER_SWAP_EPOCHS:
-                    optim = torch.optim.SGD(model.parameters(), lr=0.1, weight_decay=0.)
+                    optim = torch.optim.SGD(model.parameters(), lr=0.5, weight_decay=0.)
 
                 # keep track of time spent doing stuff
                 total_train_time += time() - start_train
@@ -137,7 +138,7 @@ def main(file_path):
 
             # evaluate regularly
             if epoch % EVAL_EVERY_EPOCHS == 0:
-                evaluate(file_path, model)
+                evaluate(model, file_loader)
 
     except (Exception, KeyboardInterrupt) as e:
         LOGGER("Training stopped, saving model...")
@@ -159,10 +160,8 @@ def main(file_path):
         raise e
 
 
-def evaluate(file_path: str, model: torch.nn.Module):
+def evaluate(model: torch.nn.Module, loader: ParallelLoader):
     model.eval()
-
-    file_loader = ParallelLoader(Path(file_path), lib.CHUNK_SIZE, BYTES_PER_STEP)
 
     with torch.no_grad():
         total_correct = 0
@@ -172,7 +171,7 @@ def evaluate(file_path: str, model: torch.nn.Module):
         h, c = model.init_state()
         h, c = h.to(lib.DEVICE), c.to(lib.DEVICE)
 
-        while batch := file_loader.get_chunks():
+        while batch := loader.get_chunks():
             inputs, targets = batch
 
             # predict next chunks
