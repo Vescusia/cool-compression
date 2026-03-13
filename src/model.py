@@ -4,39 +4,6 @@ from torch import nn
 import lib
 
 
-class ByteMaster90(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-        self.linear = nn.Sequential(
-            nn.Linear(lib.CHUNK_SIZE * 2, 64),
-            nn.LeakyReLU(),
-            nn.Linear(64, 64),
-            nn.LeakyReLU(),
-            nn.Linear(64, 64),
-            nn.LeakyReLU(),
-            nn.Linear(64, 64),
-            nn.LeakyReLU(),
-            nn.Linear(64, 64),
-            nn.LeakyReLU(),
-            nn.Linear(64, 64),
-            nn.LeakyReLU(),
-            nn.Linear(64, 64),
-            nn.LeakyReLU(),
-            nn.Linear(64, lib.CHUNK_SIZE * 8),
-            nn.Sigmoid()
-        )
-
-    def forward(self, x, _h, _c):
-        x = self.linear(x)
-
-        return x, _h, _c
-
-    @staticmethod
-    def init_state():
-        return torch.rand(1), torch.rand(1)
-
-
 class ResBlock(nn.Module):
     def __init__(self, in_out_channels: int, bottleneck: int):
         super().__init__()
@@ -62,11 +29,11 @@ class LongMaster(nn.Module):
         self.input_size = lib.CHUNK_SIZE * 2  # input also contains indexes
         self.output_size = lib.CHUNK_SIZE * 8  # output is in Bits
 
-        self.hidden_size = 8
+        self.hidden_size = 64
         self.num_layers = 1
 
-        self.res_width = 4
-        self.res_bottleneck = 1
+        self.res_width = 32
+        self.res_bottleneck = 4
 
         self.lstm = nn.LSTM(
             input_size=self.input_size,
@@ -81,7 +48,7 @@ class LongMaster(nn.Module):
             nn.LeakyReLU(),
 
             # ResNet
-            *[ResBlock(self.res_width, self.res_bottleneck) for _ in range(80)],
+            *[ResBlock(self.res_width, self.res_bottleneck) for _ in range(100)],
 
             # ResNet Width -> Bottleneck
             nn.Linear(self.res_width, self.res_bottleneck),

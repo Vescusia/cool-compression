@@ -8,19 +8,18 @@ from time import time
 import click
 import torch
 import numpy as np
+from torchviz import make_dot
 from tqdm import tqdm
-import pytorch_optimizer
 
 import model_manager
 from model import LongMaster
 import lib
-from file_loader import BatchedDataLoader
-
+from file_loader import ParallelLoader
 
 BYTES_PER_STEP = 2 ** 15
-CHUNKS_PER_BATCH = BYTES_PER_STEP // lib.CHUNK_SIZE
-EPOCHS = 2000
-OPTIMIZER_SWAP_EPOCHS = 500
+EPOCHS = 1000
+OPTIMIZER_SWAP_EPOCHS = 40
+EVAL_EVERY_EPOCHS = 1
 
 
 class FilePrinter:
@@ -28,21 +27,22 @@ class FilePrinter:
         self.log_path = log_path
         self.log_file = open(log_path, 'a')
 
-        print(f"Logging to {log_path}")
         print(f"\n{datetime.datetime.now().strftime('%H:%M %d.%m.%Y')}:\n", file=self.log_file, flush=True)
 
     def __call__(self, *args, **kwargs):
         print(*args, **kwargs)
+        self.print_to_file(*args, **kwargs)
+
+    def print_to_file(self, *args, **kwargs):
         print(*args, file=self.log_file, flush=True, **kwargs)
 
 
 LOGGER = FilePrinter(Path('log.txt'))
-LOGGER(f"Chunks per batch: {CHUNKS_PER_BATCH:,}")
 
 
 @click.command()
-@click.argument('input-path', type=click.Path(exists=True, dir_okay=False))
-def main(input_path):
+@click.argument('file-path', type=click.Path(exists=True, dir_okay=False))
+def main(file_path):
     # create model
     model = LongMaster()
     model.to(lib.DEVICE)
@@ -59,24 +59,25 @@ def main(input_path):
     # define loss function
     criterion = torch.nn.BCELoss()
     criterion.to(lib.DEVICE)
+    last_epoch_loss = 0.
 
     # open the file to compress
-    file_loader = BatchedDataLoader(input_path, CHUNKS_PER_BATCH)
+    file_loader = ParallelLoader(file_path, lib.CHUNK_SIZE, BYTES_PER_STEP)
 
-    # train
-    train_start = time()
-
-    # create progressbar
+    # create progressbars
     LOGGER(f"File size: {file_loader.file_size:,.0f} B")
-    bar = tqdm(total=file_loader.file_size, unit='B', unit_scale=True)
+    training_bar = tqdm(total=EPOCHS, unit=' Epochs', position=1)
+    epoch_bar = tqdm(total=file_loader.file_size, unit=' B', unit_divisor=1024, unit_scale=True, position=0, leave=True)
 
     try:
         for epoch in range(EPOCHS):
             # reset epoch variables
             epoch_loss = 0.
             epoch_start = time()
-            bar.reset()
-            file_loader.reset()
+
+            # update progressbars
+            training_bar.update()
+            epoch_bar.reset()
 
             # (re-)initialize model state
             h, c = model.init_state()
@@ -85,16 +86,16 @@ def main(input_path):
             # keep track of time spent doing stuff
             total_batch_get_time = 0.
             total_train_time = 0.
-
             start_batch_get = time()
-            while batch := file_loader.get_batch():
+
+            while batch := file_loader.get_chunks():
                 # keep track of time spent doing stuff
                 total_batch_get_time += time() - start_batch_get
                 start_train = time()
 
+                # unpack batch
                 inputs, targets = batch
-
-                bar.update(lib.CHUNK_SIZE * len(inputs))
+                epoch_bar.update(len(torch.flatten(inputs)) / 2)
 
                 # predict next chunk
                 predicted_chunks, h, c = model(inputs, h, c)
@@ -119,30 +120,44 @@ def main(input_path):
                 total_train_time += time() - start_train
                 start_batch_get = time()
 
-            LOGGER(
-                f"\nEpoch: {epoch}, "
-                f"{'Fast' if epoch < OPTIMIZER_SWAP_EPOCHS else 'Slow'} optimizer, "
-                f"Epoch loss: {epoch_loss:.2f}, "
-                f"Epoch time: {time() - epoch_start:.2f} s, "
-                f"Total time: {(time() - train_start) / 60:.2f} m"
-                f"Batch get time: {total_batch_get_time / total_train_time:.2%}, "
-                   )
+            # epoch stats
+            stats = f"{'Fast' if epoch < OPTIMIZER_SWAP_EPOCHS else 'Slow'} optimizer, " \
+                    f"Epoch loss: {epoch_loss:.2f} ({epoch_loss - last_epoch_loss:.2f} delta), "                                   \
+                    f"Epoch time: {time() - epoch_start:.2f} s, "                       \
+                    f"Batch get time: {total_batch_get_time / total_train_time:.2%}"
+            last_epoch_loss = epoch_loss
 
-            evaluate(input_path, model)
+            # display epoch stats
+            epoch_bar.set_description_str(stats)
+            LOGGER.print_to_file(stats)
+
+            # evaluate regularly
+            if epoch % EVAL_EVERY_EPOCHS == 0:
+                evaluate(file_path, model)
 
     except (Exception, KeyboardInterrupt) as e:
         LOGGER("Training stopped, saving model...")
 
-        model_manager.save_model(model, Path('models'))
-        model_manager.save_model_state_dict(model, Path('models'))
+        # save state
+        save_dir = Path('models')
+        model_manager.save_model(model, save_dir)
+        model_manager.save_model_state_dict(model, save_dir)
+
+        # save visualization
+        dummy_input = torch.zeros((1, lib.CHUNK_SIZE * 2), device=lib.DEVICE)
+        h, c = model.init_state()
+        dummy_output = model(dummy_input, h, c)
+        dot = make_dot(dummy_output, params=dict(model.named_parameters()))
+        dot.format = 'png'
+        dot.render(save_dir / f'viz_{model_manager.get_file_date()}')
 
         raise e
 
 
-def evaluate(input_path: str, model: torch.nn.Module):
+def evaluate(file_path: str, model: torch.nn.Module):
     model.eval()
 
-    file_loader = BatchedDataLoader(Path(input_path), CHUNKS_PER_BATCH)
+    file_loader = ParallelLoader(Path(file_path), lib.CHUNK_SIZE, BYTES_PER_STEP)
 
     with torch.no_grad():
         total_correct = 0
@@ -152,7 +167,7 @@ def evaluate(input_path: str, model: torch.nn.Module):
         h, c = model.init_state()
         h, c = h.to(lib.DEVICE), c.to(lib.DEVICE)
 
-        while batch := file_loader.get_batch():
+        while batch := file_loader.get_chunks():
             inputs, targets = batch
 
             # predict next chunks
@@ -167,7 +182,7 @@ def evaluate(input_path: str, model: torch.nn.Module):
             total_correct += np.sum(targets == predicted_chunks)
             total_bits += len(targets) * len(targets[0])
 
-        LOGGER(f"{total_bits:,} Bits, {total_correct:,} correct, {total_correct / total_bits:.3%}")
+        LOGGER(f"\n{total_bits:,} Bits, {total_correct:,} correct, {total_correct / total_bits:.3%}")
 
     model.train()
 
