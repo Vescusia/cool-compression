@@ -9,6 +9,7 @@ import os
 import lib
 import numpy as np
 import tqdm
+import time
 
 
 def compress(file_path: Path, model_path: Path = None):
@@ -20,9 +21,17 @@ def compress(file_path: Path, model_path: Path = None):
     else:
         exit("fehler beim laden des models, weil vielleicht der pfad falsch ist?")
 
+    # get number of model weights
+    num_weights = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
     # set chunk size
     chunk_size = model.chunk_size
-    batch_size_bytes = 2 ** 16
+    print(f"Chunk size: {chunk_size} B")
+    batch_size_bytes = 2 ** 15
+
+    # get file size
+    # total_bytes = os.path.getsize(file_path)
+    total_bytes = 0
 
     # two dims, list of alle relative distances between wrong predicted bits per chunk
     relative_indexes = []
@@ -50,7 +59,8 @@ def compress(file_path: Path, model_path: Path = None):
             inputs, targets = batch
 
             # update progress bar
-            bar.update(len(torch.flatten(inputs)) / 2)
+            bar.update(len(inputs) * chunk_size)
+            total_bytes += len(inputs) * chunk_size
 
             # predict next chunk
             predicted_chunks, h, c = model(inputs, h, c)
@@ -78,26 +88,20 @@ def compress(file_path: Path, model_path: Path = None):
             # add relative indices of wrong bits in this chunk to list for all chunks
             relative_indexes.append(index_array)
 
-            # increase batch counter
-            counter += 1
-            # if counter == 1000:
-            #    break
-
-        file.close()
-
     # print(relative_indexes)
     bar.close()
 
     #counter = 0
     mean = np.mean([np.mean(batch_array) for batch_array in relative_indexes])
     print("mean: ", mean)
-    print("\nstd: ", np.std([np.std(chunk_array) for chunk_array in relative_indexes]))
-    print("\nmax: ", np.max([np.max(chunk_array) for chunk_array in relative_indexes]))
-    print("correct bits/false bits: ", counter * chunk_size * 8 - count_false_bits, "/", count_false_bits)
-    print("bytes required:", count_false_bits * (np.log2(round(mean)) + 1) / 8)
+    print("std: ", np.std([np.std(batch_array) for batch_array in relative_indexes]))
+    print("max: ", np.max([np.max(batch_array) for batch_array in relative_indexes]))
+    print(f"correct / false bits:    {total_bytes * 8 - count_false_bits:,} / {count_false_bits:,}")
+    print(f"required size:           {count_false_bits * (np.log2(round(mean)) + 1) / 8 + num_weights * 4:,.0f} B")
+    print(f"file size in bytes/bits: {total_bytes:,} / {total_bytes * 8:,}")
 
 
 if __name__ == "__main__":
-    compress(Path("./data/log.txt"), Path("./models/model_202603122231.pt"))
+    compress(Path("./data/log.txt"), Path("models/model_2026_03.13_13-46.pt"))
 
 

@@ -16,10 +16,12 @@ from model import LongMaster
 import lib
 from file_loader import ParallelLoader
 
+
 BYTES_PER_STEP = 2 ** 15
 EPOCHS = 1000
-OPTIMIZER_SWAP_EPOCHS = 40
-EVAL_EVERY_EPOCHS = 1
+OPTIMIZER_SWAP_EPOCHS = 100
+EVAL_EVERY_EPOCHS = 20
+VISUALIZE_MODEL = False  # NEEDS GRAPHVIZ!!
 
 
 class FilePrinter:
@@ -37,7 +39,8 @@ class FilePrinter:
         print(*args, file=self.log_file, flush=True, **kwargs)
 
 
-LOGGER = FilePrinter(Path('log.txt'))
+if __name__ == '__main__':
+    LOGGER = FilePrinter(Path('log.txt'))
 
 
 @click.command()
@@ -54,7 +57,8 @@ def main(file_path):
     LOGGER(f"Model parameters: {num_params:,} ({num_lstm_params:,} LSTM, {num_res_net_params:,} ResNet)")
 
     # define fast/first optimizer
-    optim = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.)
+    # optim = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.)
+    optim = torch.optim.LBFGS(model.parameters(), lr=1., max_iter=30)
 
     # define loss function
     criterion = torch.nn.BCELoss()
@@ -95,7 +99,7 @@ def main(file_path):
 
                 # unpack batch
                 inputs, targets = batch
-                epoch_bar.update(len(torch.flatten(inputs)) / 2)
+                epoch_bar.update(len(inputs) * lib.CHUNK_SIZE)
 
                 # predict next chunk
                 predicted_chunks, h, c = model(inputs, h, c)
@@ -114,7 +118,7 @@ def main(file_path):
 
                 # swap to slow optimizer
                 if epoch == OPTIMIZER_SWAP_EPOCHS:
-                    optim = torch.optim.SGD(model.parameters(), lr=0.01, weight_decay=0.)
+                    optim = torch.optim.SGD(model.parameters(), lr=0.1, weight_decay=0.)
 
                 # keep track of time spent doing stuff
                 total_train_time += time() - start_train
@@ -122,8 +126,8 @@ def main(file_path):
 
             # epoch stats
             stats = f"{'Fast' if epoch < OPTIMIZER_SWAP_EPOCHS else 'Slow'} optimizer, " \
-                    f"Epoch loss: {epoch_loss:.2f} ({epoch_loss - last_epoch_loss:.2f} delta), "                                   \
-                    f"Epoch time: {time() - epoch_start:.2f} s, "                       \
+                    f"Epoch loss: {epoch_loss:.2f} ({epoch_loss - last_epoch_loss:.2f} delta), " \
+                    f"Epoch time: {time() - epoch_start:.2f} s, " \
                     f"Batch get time: {total_batch_get_time / total_train_time:.2%}"
             last_epoch_loss = epoch_loss
 
@@ -144,12 +148,13 @@ def main(file_path):
         model_manager.save_model_state_dict(model, save_dir)
 
         # save visualization
-        dummy_input = torch.zeros((1, lib.CHUNK_SIZE * 2), device=lib.DEVICE)
-        h, c = model.init_state()
-        dummy_output = model(dummy_input, h, c)
-        dot = make_dot(dummy_output, params=dict(model.named_parameters()))
-        dot.format = 'png'
-        dot.render(save_dir / f'viz_{model_manager.get_file_date()}')
+        if VISUALIZE_MODEL:
+            dummy_input = torch.zeros((1, lib.CHUNK_SIZE * 2), device=lib.DEVICE)
+            h, c = model.init_state()
+            dummy_output = model(dummy_input, h, c)
+            dot = make_dot(dummy_output, params=dict(model.named_parameters()))
+            dot.format = 'png'
+            dot.render(save_dir / f'viz_{model_manager.get_file_date()}')
 
         raise e
 
