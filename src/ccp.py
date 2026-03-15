@@ -18,9 +18,9 @@ from file_loader import ParallelLoader
 
 
 BYTES_PER_STEP = 2 ** 16
-EPOCHS = 5000
-OPTIMIZER_SWAP_EPOCHS = 500
-EVAL_EVERY_EPOCHS = 50
+EPOCHS = 350
+OPTIMIZER_SWAP_EPOCHS = EPOCHS // 2
+EVAL_EVERY_EPOCHS = 10
 VISUALIZE_MODEL = False  # NEEDS GRAPHVIZ!!
 
 
@@ -49,12 +49,14 @@ def main(file_path):
     # create model
     model = LongMaster()
     model.to(lib.DEVICE)
+    # model.compile()
 
     # print number of parameters
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     num_lstm_params = sum(p.numel() for p in model.lstm.parameters() if p.requires_grad)
     num_res_net_params = sum(p.numel() for p in model.res_net.parameters() if p.requires_grad)
-    LOGGER(f"Model parameters: {num_params:,} ({num_lstm_params:,} LSTM, {num_res_net_params:,} ResNet)")
+    num_last_fc_params = sum(p.numel() for p in model.fc_to_output.parameters() if p.requires_grad)
+    LOGGER(f"Model parameters: {num_params:,} ({num_lstm_params:,} LSTM, {num_res_net_params:,} ResNet, {num_last_fc_params:,} Last FC)")
 
     # define fast/first optimizer
     optim = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=0.)
@@ -119,7 +121,7 @@ def main(file_path):
 
                 # swap to slow optimizer
                 if epoch == OPTIMIZER_SWAP_EPOCHS:
-                    optim = torch.optim.SGD(model.parameters(), lr=0.5, weight_decay=0.)
+                    optim = torch.optim.SGD(model.parameters(), lr=1., weight_decay=0.)
 
                 # keep track of time spent doing stuff
                 total_train_time += time() - start_train
@@ -127,7 +129,7 @@ def main(file_path):
 
             # epoch stats
             stats = f"{'Fast' if epoch < OPTIMIZER_SWAP_EPOCHS else 'Slow'} optimizer, " \
-                    f"Epoch loss: {epoch_loss:.2f} ({epoch_loss - last_epoch_loss:.2f} delta), " \
+                    f"Epoch loss: {epoch_loss:.3f} ({epoch_loss - last_epoch_loss:.1e} delta), " \
                     f"Epoch time: {time() - epoch_start:.2f} s, " \
                     f"Batch get time: {total_batch_get_time / total_train_time:.2%}"
             last_epoch_loss = epoch_loss
@@ -139,6 +141,9 @@ def main(file_path):
             # evaluate regularly
             if epoch % EVAL_EVERY_EPOCHS == 0:
                 evaluate(model, file_loader)
+
+        # save model at end
+        raise StopIteration
 
     except (Exception, KeyboardInterrupt) as e:
         LOGGER("Training stopped, saving model...")

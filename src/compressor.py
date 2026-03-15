@@ -74,12 +74,13 @@ def compress(file_path: Path, model_path: Path = None):
             count_false_bits += np.sum(bool_array)
 
             # get array with only the indices of wrong bits
-            index_array = np.argwhere(bool_array.ravel()).ravel().astype(np.uint16)
+            index_array = np.argwhere(bool_array.ravel()).ravel().astype(np.uint64)
 
             # calc distances between adjacent wrong bits (relative indices of wrong bits)
-            index_array = index_array[1:] - index_array[:-1]
+            index_array = index_array - np.concat(([0], index_array[:-1]))
 
-            # variable length encode relative indices
+            # subtract 1 from distances, as the bits have to be at least one apart
+            index_array[1:] -= 1
 
             # add relative indices of wrong bits in this chunk to list for all chunks
             relative_indexes.append(index_array)
@@ -98,4 +99,4 @@ def compress(file_path: Path, model_path: Path = None):
 
 
 if __name__ == "__main__":
-    compress(Path("./data/log.txt"), Path("models/model_2026_03.13_13-46.pt"))
+    compress(Path("./data/log.txt"), Path("models/model_2026_03.14_23-06.pt"))

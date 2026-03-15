@@ -29,11 +29,11 @@ class LongMaster(nn.Module):
         self.input_size = lib.CHUNK_SIZE * 2  # input also contains indexes
         self.output_size = lib.CHUNK_SIZE * 8  # output is in Bits
 
-        self.hidden_size = 48
+        self.hidden_size = 2
         self.num_layers = 1
 
-        self.res_width = 16
-        self.res_bottleneck = 2
+        self.res_width = 2
+        self.res_bottleneck = 1
 
         self.lstm = nn.LSTM(
             input_size=self.input_size,
@@ -48,22 +48,24 @@ class LongMaster(nn.Module):
             nn.LeakyReLU(),
 
             # ResNet
-            *[ResBlock(self.res_width, self.res_bottleneck) for _ in range(200)],
+            *[ResBlock(self.res_width, self.res_bottleneck) for _ in range(100)],
 
             # # ResNet Width -> Bottleneck
             # nn.Linear(self.res_width, self.res_bottleneck),
             # nn.LeakyReLU(),
-
-            # Bottleneck -> Output Size
-            nn.Linear(self.res_width, self.output_size),
         )
 
+        # ResNet -> Output Size
+        self.fc_to_output = nn.Linear(self.res_width, self.output_size)
+
+        # -> [0, 1]
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x, h, c):
         x, (h, c) = self.lstm(x, (h, c))
 
         x = self.res_net(x)
+        x = self.fc_to_output(x)
         x = self.sigmoid(x)
 
         return x, h, c
