@@ -32,8 +32,8 @@ class LongMaster(nn.Module):
         self.hidden_size = 2
         self.num_layers = 1
 
-        self.res_width = 2
-        self.res_bottleneck = 1
+        self.res_width = 8
+        self.res_bottleneck = 2
 
         self.lstm = nn.LSTM(
             input_size=self.input_size,

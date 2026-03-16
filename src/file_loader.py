@@ -8,35 +8,23 @@ import torch
 import lib
 
 
-def norm_as_bytes(chunk: bytes, chunk_start_pos: int, total_size: int) -> torch.Tensor:
-    # load chunk as floats
-    chunk = np.frombuffer(chunk, dtype=np.uint8)
-    chunk = chunk.astype(np.float32)
-    # normalize to [0, 1]
-    chunk /= 255
-    # convert to tensor
-    chunk = torch.from_numpy(chunk)
+def normed_bytes_to_bits(normed_bytes: torch.Tensor) -> np.ndarray:
+    """
+    :param normed_bytes: 2d / 1d Tensor of normed ([0, 1] floats representing bytes)
+    :return: flat array of the corresponding bits
+    """
+    # scale up to full bytes
+    normed_bytes *= 255
+    # round
+    normed_bytes = torch.round(normed_bytes)
+    # to numpy
+    normed_bytes = normed_bytes.cpu().numpy()
 
-    # get index of every byte in the chunk
-    indexes = np.arange(chunk_start_pos, chunk_start_pos + lib.CHUNK_SIZE, dtype=np.float32)
-    # normalize to [0, 1]
-    indexes /= total_size
-    # convert to tensor
-    indexes = torch.from_numpy(indexes)
+    # to bits and flatten
+    normed_bytes = normed_bytes.astype(np.uint8)
+    normed_bytes = np.unpackbits(normed_bytes)
 
-    # join tensors [a0, b0, a1, b1, ... ]
-    normed = torch.stack((chunk, indexes), dim=1).flatten()
-    return normed.to(lib.DEVICE)
-
-
-def as_bits(raw_chunk: bytes) -> torch.Tensor:
-    chunk = np.frombuffer(raw_chunk, dtype=np.uint8)
-
-    chunk = np.unpackbits(chunk)
-    chunk = chunk.astype(np.float32)
-
-    chunk = torch.from_numpy(chunk)
-    return chunk.to(lib.DEVICE)
+    return normed_bytes
 
 
 def _next_packet_num(num: int) -> int:
