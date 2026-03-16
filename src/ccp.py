@@ -18,7 +18,7 @@ import lib
 import file_loader
 
 
-BYTES_PER_STEP = 2 ** 16
+BYTES_PER_STEP = 2 ** 15
 EPOCHS = 350
 OPTIMIZER_SWAP_EPOCHS = EPOCHS // 2
 EVAL_EVERY_EPOCHS = 10
@@ -61,7 +61,7 @@ def main(file_path):
     LOGGER(f"Model parameters: {num_params:,} ({num_lstm_params:,} LSTM, {num_res_net_params:,} ResNet, {num_last_fc_params:,} Last FC)")
 
     # define fast/first optimizer
-    optim = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.)
+    optim = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=0.)
     # optim = torch.optim.LBFGS(model.parameters(), lr=1., max_iter=30)
 
     # define loss function
@@ -123,7 +123,7 @@ def main(file_path):
 
                 # swap to slow optimizer
                 if epoch == OPTIMIZER_SWAP_EPOCHS:
-                    optim = torch.optim.SGD(model.parameters(), lr=0.01, weight_decay=0.)
+                    optim = torch.optim.SGD(model.parameters(), lr=0.1, weight_decay=0.)
 
                 # keep track of time spent doing stuff
                 total_train_time += time() - start_train
@@ -188,15 +188,18 @@ def evaluate(model: torch.nn.Module, loader: file_loader.ParallelLoader):
 
             # predict next chunks
             predicted_chunks, h, c = model(inputs, h, c)
-            avg_std += torch.std(torch.flatten(predicted_chunks))
+            avg_std += torch.std(predicted_chunks)
 
-            # convert to bits
-            predicted_chunks = file_loader.normed_bytes_to_bits(predicted_chunks)
-            targets = file_loader.normed_bytes_to_bits(targets)
+            # round predictions
+            predicted_chunks = torch.round(predicted_chunks)
+
+            # to numpy
+            predicted_chunks = predicted_chunks.cpu().numpy()
+            targets = targets.cpu().numpy()
 
             # calculate accuracy
             total_correct += np.sum(targets == predicted_chunks)
-            total_bits += len(targets)
+            total_bits += len(targets) * lib.CHUNK_SIZE * 8
 
         avg_std /= num_batches
         LOGGER(f"\n{total_bits:,} Bits, {total_correct:,} correct, {total_correct / total_bits:.3%}, (Prediction STD: {avg_std:.3})")

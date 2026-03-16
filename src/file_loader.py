@@ -228,11 +228,11 @@ class ParallelLoader:
         chunk_size = len(chunks[0])
 
         # turn targets to bits
-        targets = np.unpackbits(chunks.ravel())
+        inputs = np.unpackbits(chunks.ravel())
 
         # split to chunks
-        targets = np.split(targets, len(chunks))
-        targets = np.array(targets)
+        inputs = np.split(inputs, len(chunks))
+        inputs = np.array(inputs)
 
         # # create indexes
         # end_index = first_chunk_pos * 8 + len(chunks) * chunk_size * 8
@@ -243,8 +243,23 @@ class ParallelLoader:
         # indexes = indexes.reshape(len(chunks), -1)
         #
         # # join indexes [a0, b0, a1, b1, ... ]
-        # inputs = np.stack((indexes, targets), axis=2)
-        # targets = inputs.reshape(len(chunks), -1, copy=False)
+        # inputs = np.stack((indexes, inputs), axis=2)
+        # inputs = inputs.reshape(len(chunks), -1, copy=False)
+
+        # convert to tensor
+        inputs = inputs.astype(np.float32)
+        inputs = torch.from_numpy(inputs)
+
+        return inputs.to(lib.DEVICE)
+
+    @staticmethod
+    def chunks_to_targets(chunks: np.ndarray) -> torch.Tensor:
+        # turn targets to bits
+        targets = np.unpackbits(chunks.ravel())
+
+        # split to chunks
+        targets = np.split(targets, len(chunks))
+        targets = np.array(targets)
 
         # convert to tensor
         targets = targets.astype(np.float32)
@@ -252,20 +267,9 @@ class ParallelLoader:
 
         return targets.to(lib.DEVICE)
 
-    @staticmethod
-    def chunks_to_targets(chunks: np.ndarray) -> torch.Tensor:
-        # normalize to [0, 1]
-        inputs = chunks.astype(np.float32)
-        inputs /= 255
-
-        # convert to tensor
-        inputs = torch.from_numpy(inputs)
-
-        return inputs.to(lib.DEVICE)
-
 
 if __name__ == "__main__":
-    loader = ParallelLoader(Path("data") / "g2bb.jpg", 16, 2 ** 5 - 3, num_processors=1)
+    loader = ParallelLoader(Path("data") / "g2bb.jpg", 1, 2 ** 5 - 3, num_processors=1)
 
     while True:
         _total = 0
@@ -273,9 +277,7 @@ if __name__ == "__main__":
         while _data := loader.get_chunks():
             _inputs, _targets = _data
 
-            _targets = torch.flatten(_targets)
-            _total += len(_targets)
-
-            print(torch.flatten(_inputs).tolist())
+            _inputs = torch.flatten(_inputs)
+            _total += len(_inputs) / 8
 
         input(_total)
