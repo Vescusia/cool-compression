@@ -26,8 +26,8 @@ class LongMaster(nn.Module):
         super().__init__()
 
         self.chunk_size = lib.CHUNK_SIZE
-        self.input_size = lib.CHUNK_SIZE * 2  # input also contains indexes
-        self.output_size = lib.CHUNK_SIZE * 8  # output is in Bits
+        self.input_size = lib.CHUNK_SIZE * 8  # input is in Bits
+        self.output_size = lib.CHUNK_SIZE
 
         self.hidden_size = 2
         self.num_layers = 1

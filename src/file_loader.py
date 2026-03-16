@@ -167,10 +167,10 @@ class ParallelLoader:
 
             # process to inputs
             first_chunk_pos, chunks = data
-            inputs = ParallelLoader.process_to_inputs(chunks, first_chunk_pos, file_size)
+            inputs = ParallelLoader.chunks_to_inputs(chunks, first_chunk_pos, file_size)
 
             # process to targets
-            targets = ParallelLoader.process_to_targets(chunks)
+            targets = ParallelLoader.chunks_to_targets(chunks)
 
             # send to batchifier
             processed_chunk_q.put((num, (inputs, targets)), block=True)
@@ -229,13 +229,34 @@ class ParallelLoader:
         return self.batch_q.get()
 
     @staticmethod
-    def process_to_targets(chunks: np.ndarray) -> torch.Tensor:
+    def chunks_to_inputs(chunks: np.ndarray, first_chunk_pos: int, file_size: int) -> torch.Tensor:
+        """
+        :param chunks: 2d array of uint8's with the 2nd dimension being the chunk size
+        :param first_chunk_pos: the position (within the file) of the first byte of the first chunk in ``chunks``
+        :param file_size: the total file size in bytes
+        :return: Tensor (on lib.DEVICE) of inputs
+        """
+
+        chunk_size = len(chunks[0])
+
         # turn targets to bits
         targets = np.unpackbits(chunks.ravel())
 
         # split to chunks
         targets = np.split(targets, len(chunks))
         targets = np.array(targets)
+
+        # # create indexes
+        # end_index = first_chunk_pos * 8 + len(chunks) * chunk_size * 8
+        # indexes = np.arange(first_chunk_pos * 8, end_index, dtype=np.float32)
+        #
+        # # normalize and reshape indexes
+        # indexes /= (file_size - chunk_size) * 8 - 1  # the last chunk is cut off
+        # indexes = indexes.reshape(len(chunks), -1)
+        #
+        # # join indexes [a0, b0, a1, b1, ... ]
+        # inputs = np.stack((indexes, targets), axis=2)
+        # targets = inputs.reshape(len(chunks), -1, copy=False)
 
         # convert to tensor
         targets = targets.astype(np.float32)
@@ -244,24 +265,10 @@ class ParallelLoader:
         return targets.to(lib.DEVICE)
 
     @staticmethod
-    def process_to_inputs(chunks: np.ndarray, first_chunk_pos: int, file_size: int) -> torch.Tensor:
+    def chunks_to_targets(chunks: np.ndarray) -> torch.Tensor:
         # normalize to [0, 1]
         inputs = chunks.astype(np.float32)
         inputs /= 255
-
-        # get index of every byte in the inputs
-        end_index = first_chunk_pos + len(chunks) * len(chunks[0])  # emulating len(chunks) * chunk_size
-        indexes = np.arange(first_chunk_pos, end_index, dtype=np.float32)
-
-        # normalize to [0, 1]
-        indexes /= file_size
-
-        # reshape to chunks
-        indexes = indexes.reshape(len(chunks), -1)
-
-        # join tensors [a0, b0, a1, b1, ... ]
-        inputs = np.stack((indexes, inputs), axis=2)
-        inputs = inputs.reshape(len(chunks), -1, copy=False)
 
         # convert to tensor
         inputs = torch.from_numpy(inputs)
@@ -270,7 +277,7 @@ class ParallelLoader:
 
 
 if __name__ == "__main__":
-    loader = ParallelLoader(Path("data") / "g2bb.jpg", 1, 2 ** 12 - 5, num_processors=8)
+    loader = ParallelLoader(Path("data") / "g2bb.jpg", 16, 2 ** 5 - 3, num_processors=1)
 
     while True:
         _total = 0
@@ -278,9 +285,9 @@ if __name__ == "__main__":
         while _data := loader.get_chunks():
             _inputs, _targets = _data
 
-            _inputs = torch.flatten(_inputs)
-            _total += len(_inputs) / 2
+            _targets = torch.flatten(_targets)
+            _total += len(_targets)
 
-            print(torch.flatten(_targets).tolist())
+            print(torch.flatten(_inputs).tolist())
 
         input(_total)

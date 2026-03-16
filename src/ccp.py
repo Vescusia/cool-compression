@@ -1,5 +1,6 @@
 # MMM BROT (Bio Brötchen????)
 # BROTPAUSE??
+# ULTRA BROTPAUSE IMMINENT
 
 import datetime
 from pathlib import Path
@@ -21,6 +22,7 @@ BYTES_PER_STEP = 2 ** 16
 EPOCHS = 350
 OPTIMIZER_SWAP_EPOCHS = EPOCHS // 2
 EVAL_EVERY_EPOCHS = 10
+
 VISUALIZE_MODEL = False  # NEEDS GRAPHVIZ!!
 
 
@@ -146,7 +148,7 @@ def main(file_path):
         raise StopIteration
 
     except (Exception, KeyboardInterrupt) as e:
-        LOGGER("Training stopped, saving model...")
+        LOGGER("\nTraining stopped, saving model...")
 
         # save state
         save_dir = Path('models')
@@ -181,15 +183,22 @@ def evaluate(model: torch.nn.Module, loader: ParallelLoader):
 
             # predict next chunks
             predicted_chunks, h, c = model(inputs, h, c)
+
+            # round to bytes
+            predicted_chunks *= 255
             predicted_chunks = torch.round(predicted_chunks)
             predicted_chunks = predicted_chunks.cpu().numpy()
 
             # convert targets to numpy
             targets = targets.cpu().numpy()
 
+            # convert to bits
+            predicted_chunks = np.unpackbits(predicted_chunks.astype(np.uint8))
+            targets = np.unpackbits(targets.astype(np.uint8))
+
             # calculate accuracy
             total_correct += np.sum(targets == predicted_chunks)
-            total_bits += len(targets) * len(targets[0])
+            total_bits += len(targets)
 
         LOGGER(f"\n{total_bits:,} Bits, {total_correct:,} correct, {total_correct / total_bits:.3%}")
 
