@@ -37,7 +37,7 @@ def compress(file_path: Path, model_path: Path = None):
 
     with torch.no_grad():
         # initialize model state
-        h, c = model.init_state()
+        state = model.init_state()
 
         # count false bits for evaluation, not important for usage (DEL)
         count_false_bits = 0
@@ -59,7 +59,7 @@ def compress(file_path: Path, model_path: Path = None):
             total_bytes += len(inputs) * chunk_size
 
             # predict next chunk
-            predicted_chunks, h, c = model(inputs, h, c)
+            predicted_chunks, state = model(inputs, state)
             predicted_chunks = torch.round(predicted_chunks)
             predicted_chunks = predicted_chunks.cpu().numpy()
 
@@ -99,4 +99,4 @@ def compress(file_path: Path, model_path: Path = None):
 
 
 if __name__ == "__main__":
-    compress(Path("./data/tub_chem.png"), Path("models/model_2026_03.17_04-12.pt"))
+    compress(Path("./data/g2bb.jpg"), Path("models/model_2026_03.17_20-44.pt"))

@@ -12,15 +12,15 @@ from torchviz import make_dot
 from tqdm import tqdm
 
 import model_manager
-from model import LongMaster
+from model import LongMaster, LSTMState
 import lib
 from file_loader import ParallelLoader
 
 
 BYTES_PER_STEP = 2 ** 16
-EPOCHS = 40
+EPOCHS = 80
 OPTIMIZER_SWAP_EPOCHS = EPOCHS // 2
-EVAL_EVERY_EPOCHS = 4
+EVAL_EVERY_EPOCHS = 8
 VISUALIZE_MODEL = False  # NEEDS GRAPHVIZ!!
 
 
@@ -57,7 +57,7 @@ def main(file_path):
     # print number of parameters
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     num_lstm_params = sum(p.numel() for p in model.lstm.parameters() if p.requires_grad)
-    num_res_net_params = sum(p.numel() for p in model.res_net.parameters() if p.requires_grad)
+    num_res_net_params = sum(p.numel() for p in model.res_lstm.parameters() if p.requires_grad)
     num_last_fc_params = sum(p.numel() for p in model.fc_to_output.parameters() if p.requires_grad)
     LOGGER(f"Model parameters: {num_params:,} ({num_lstm_params:,} LSTM, {num_res_net_params:,} ResNet, {num_last_fc_params:,} Last FC)")
 
@@ -89,7 +89,7 @@ def main(file_path):
             epoch_bar.reset()
 
             # (re-)initialize model state
-            h, c = model.init_state()
+            state = model.init_state()
 
             # keep track of time spent doing stuff
             total_batch_get_time = 0.
@@ -107,8 +107,8 @@ def main(file_path):
                 epoch_bar.update(len(inputs) * lib.CHUNK_SIZE)
 
                 # predict next chunk
-                predicted_chunks, h, c = model(inputs, h, c)
-                h, c = h.detach(), c.detach()
+                predicted_chunks, state = model(inputs, state)
+                state = state.detach()
 
                 # calculate loss
                 loss = criterion(predicted_chunks, targets)
@@ -155,8 +155,8 @@ def main(file_path):
         # save visualization
         if VISUALIZE_MODEL:
             dummy_input = torch.zeros((1, lib.CHUNK_SIZE * 2), device=lib.DEVICE)
-            h, c = model.init_state()
-            dummy_output = model(dummy_input, h, c)
+            hx, cx = model.init_state()
+            dummy_output = model(dummy_input, hx, cx)
             dot = make_dot(dummy_output, params=dict(model.named_parameters()))
             dot.format = 'png'
             dot.render(save_dir / f'viz_{model_manager.get_file_date()}')
@@ -170,7 +170,7 @@ def evaluate(model: torch.nn.Module, loader: ParallelLoader):
         total_bits = 0
 
         # initialize model state
-        h, c = model.init_state()
+        state = model.init_state()
 
         # compute std deviation of predictions
         num_batches = 0
@@ -183,7 +183,7 @@ def evaluate(model: torch.nn.Module, loader: ParallelLoader):
             num_batches += 1
 
             # predict next chunks
-            predicted_chunks, h, c = model(inputs, h, c)
+            predicted_chunks, state = model(inputs, state)
 
             # compute prediction stats
             pred_std += predicted_chunks.std()
