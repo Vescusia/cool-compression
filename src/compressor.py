@@ -94,9 +94,9 @@ def compress(file_path: Path, model_path: Path = None):
     print("std: ", np.std([np.std(batch_array) for batch_array in relative_indexes]))
     print("max: ", np.max([np.max(batch_array) for batch_array in relative_indexes]))
     print(f"correct / false bits:    {total_bytes * 8 - count_false_bits:,} / {count_false_bits:,}")
-    print(f"required size:           {count_false_bits * (np.log2(round(mean)) + 1) / 8 + num_weights * 4:,.0f} B")
+    print(f"required size:           {count_false_bits * (np.log2(round(mean)) + 1 + 1) / 8 + num_weights * 4:,.0f} B")
     print(f"file size in bytes/bits: {total_bytes:,} / {total_bytes * 8:,}")
 
 
 if __name__ == "__main__":
-    compress(Path("./data/log.txt"), Path("models/model_2026_03.14_23-06.pt"))
+    compress(Path("./data/tub_chem.png"), Path("models/model_2026_03.17_04-12.pt"))

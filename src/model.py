@@ -26,20 +26,18 @@ class LongMaster(nn.Module):
         super().__init__()
 
         self.chunk_size = lib.CHUNK_SIZE
-        self.input_size = lib.CHUNK_SIZE * 8 * 2  # input is in Bits and has indexes
+        self.input_size = lib.CHUNK_SIZE * 2  # input also contains indexes
         self.output_size = lib.CHUNK_SIZE * 8  # output is in Bits
 
-        self.hidden_size = 4
+        self.hidden_size = 64
         self.num_layers = 1
 
-        self.res_width = 4
-        self.res_bottleneck = 1
+        self.res_width = 64
+        self.res_bottleneck = 4
 
         self.lstm = nn.LSTM(
             input_size=self.input_size,
             hidden_size=self.hidden_size,
-            num_layers=self.num_layers,
-            bidirectional=False,
         )
 
         self.res_net = nn.Sequential(
@@ -48,7 +46,7 @@ class LongMaster(nn.Module):
             nn.LeakyReLU(),
 
             # ResNet
-            *[ResBlock(self.res_width, self.res_bottleneck) for _ in range(100)],
+            *[ResBlock(self.res_width, self.res_bottleneck) for _ in range(10)],
 
             # # ResNet Width -> Bottleneck
             # nn.Linear(self.res_width, self.res_bottleneck),
@@ -61,14 +59,33 @@ class LongMaster(nn.Module):
         # -> [0, 1]
         self.sigmoid = nn.Sigmoid()
 
-    def forward(self, x, h, c):
-        x, (h, c) = self.lstm(x, (h, c))
+    def forward(self, x, hx, cx):
+        x, (hx, cx) = self.lstm(x, (hx, cx))
 
         x = self.res_net(x)
         x = self.fc_to_output(x)
         x = self.sigmoid(x)
 
-        return x, h, c
+        return x, hx, cx
 
     def init_state(self):
-        return torch.zeros(self.num_layers, self.hidden_size), torch.zeros(self.num_layers, self.hidden_size)
+        return torch.zeros(1, self.hidden_size).to(lib.DEVICE), torch.zeros(1, self.hidden_size).to(lib.DEVICE)
+
+    @staticmethod
+    def init_weights(module: nn.Module):
+        # initialize ResBlocks such that they start out as identifiers
+        if isinstance(module, ResBlock):
+            nn.init.constant_(module.linear[-1].weight, 0)
+            nn.init.constant_(module.linear[-1].bias, 0)
+
+        elif isinstance(module, nn.Linear):
+            nn.init.kaiming_uniform_(module.weight)
+            if module.bias is not None:
+                nn.init.constant_(module.bias, 0.01)
+
+        elif isinstance(module, nn.LSTM):
+            for name, param in module.named_parameters():
+                if 'weight' in name:
+                    nn.init.kaiming_uniform_(param)
+                elif 'bias' in name:
+                    nn.init.constant_(param, 0)
