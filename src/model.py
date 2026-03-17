@@ -102,12 +102,12 @@ class LongMaster(nn.Module):
         self.input_size = lib.CHUNK_SIZE * 2  # input also contains indexes
         self.output_size = lib.CHUNK_SIZE * 8  # output is in Bits
 
-        self.hidden_size = 12
+        self.hidden_size = 32
         self.num_layers = 1
 
-        self.res_width = 2
-        self.res_bottleneck = 8
-        self.res_depth = 2
+        self.res_width = 4
+        self.res_bottleneck = 24
+        self.res_depth = 8
 
         self.lstm = nn.LSTM(
             input_size=self.input_size,
