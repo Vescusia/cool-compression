@@ -8,23 +8,35 @@ import torch
 import lib
 
 
-def normed_bytes_to_bits(normed_bytes: torch.Tensor) -> np.ndarray:
-    """
-    :param normed_bytes: 2d / 1d Tensor of normed ([0, 1] floats representing bytes)
-    :return: flat array of the corresponding bits
-    """
-    # scale up to full bytes
-    normed_bytes *= 255
-    # round
-    normed_bytes = torch.round(normed_bytes)
-    # to numpy
-    normed_bytes = normed_bytes.cpu().numpy()
+def norm_as_bytes(chunk: bytes, chunk_start_pos: int, total_size: int) -> torch.Tensor:
+    # load chunk as floats
+    chunk = np.frombuffer(chunk, dtype=np.uint8)
+    chunk = chunk.astype(np.float32)
+    # normalize to [0, 1]
+    chunk /= 255
+    # convert to tensor
+    chunk = torch.from_numpy(chunk)
 
-    # to bits and flatten
-    normed_bytes = normed_bytes.astype(np.uint8)
-    normed_bytes = np.unpackbits(normed_bytes)
+    # get index of every byte in the chunk
+    indexes = np.arange(chunk_start_pos, chunk_start_pos + lib.CHUNK_SIZE, dtype=np.float32)
+    # normalize to [0, 1]
+    indexes /= total_size
+    # convert to tensor
+    indexes = torch.from_numpy(indexes)
 
-    return normed_bytes
+    # join tensors [a0, b0, a1, b1, ... ]
+    normed = torch.stack((chunk, indexes), dim=1).flatten()
+    return normed.to(lib.DEVICE)
+
+
+def as_bits(raw_chunk: bytes) -> torch.Tensor:
+    chunk = np.frombuffer(raw_chunk, dtype=np.uint8)
+
+    chunk = np.unpackbits(chunk)
+    chunk = chunk.astype(np.float32)
+
+    chunk = torch.from_numpy(chunk)
+    return chunk.to(lib.DEVICE)
 
 
 def _next_packet_num(num: int) -> int:
@@ -218,36 +230,25 @@ class ParallelLoader:
 
     @staticmethod
     def chunks_to_inputs(chunks: np.ndarray, first_chunk_pos: int, file_size: int) -> torch.Tensor:
-        """
-        :param chunks: 2d array of uint8's with the 2nd dimension being the chunk size
-        :param first_chunk_pos: the position (within the file) of the first byte of the first chunk in ``chunks``
-        :param file_size: the total file size in bytes
-        :return: Tensor (on lib.DEVICE) of inputs
-        """
+        # normalize to [0, 1]
+        inputs = chunks.astype(np.float32)
+        inputs /= 255
 
-        chunk_size = len(chunks[0])
+        # get index of every byte in the inputs
+        end_index = first_chunk_pos + len(chunks) * len(chunks[0])  # emulating len(chunks) * chunk_size
+        indexes = np.arange(first_chunk_pos, end_index, dtype=np.float32)
 
-        # turn targets to bits
-        inputs = np.unpackbits(chunks.ravel())
+        # normalize to [0, 1]
+        indexes /= file_size
 
-        # split to chunks
-        inputs = np.split(inputs, len(chunks))
-        inputs = np.array(inputs)
+        # reshape to chunks
+        indexes = indexes.reshape(len(chunks), -1)
 
-        # # create indexes
-        # end_index = first_chunk_pos * 8 + len(chunks) * chunk_size * 8
-        # indexes = np.arange(first_chunk_pos * 8, end_index, dtype=np.float32)
-        #
-        # # normalize and reshape indexes
-        # indexes /= (file_size - chunk_size) * 8 - 1  # the last chunk is cut off
-        # indexes = indexes.reshape(len(chunks), -1)
-        #
-        # # join indexes [a0, b0, a1, b1, ... ]
-        # inputs = np.stack((indexes, inputs), axis=2)
-        # inputs = inputs.reshape(len(chunks), -1, copy=False)
+        # join tensors [a0, b0, a1, b1, ... ]
+        inputs = np.stack((indexes, inputs), axis=2)
+        inputs = inputs.reshape(len(chunks), -1, copy=False)
 
         # convert to tensor
-        inputs = inputs.astype(np.float32)
         inputs = torch.from_numpy(inputs)
 
         return inputs.to(lib.DEVICE)
@@ -269,7 +270,7 @@ class ParallelLoader:
 
 
 if __name__ == "__main__":
-    loader = ParallelLoader(Path("data") / "g2bb.jpg", 1, 2 ** 5 - 3, num_processors=1)
+    loader = ParallelLoader(Path("data") / "g2bb.jpg", 1, 2 ** 12 - 5, num_processors=8)
 
     while True:
         _total = 0
@@ -278,6 +279,8 @@ if __name__ == "__main__":
             _inputs, _targets = _data
 
             _inputs = torch.flatten(_inputs)
-            _total += len(_inputs) / 8
+            _total += len(_inputs) / 2
+
+            print(torch.flatten(_targets).tolist())
 
         input(_total)
