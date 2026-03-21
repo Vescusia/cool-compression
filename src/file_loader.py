@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from multiprocessing import Process, Queue
+from torch.multiprocessing import spawn, Queue, ProcessContext
 
 import numpy as np
 import torch
@@ -60,40 +60,20 @@ class ParallelLoader:
         self.batch_q: Queue[tuple[torch.Tensor, torch.Tensor] | None] = Queue(maxsize=16)
 
         # start file reader
-        self.file_reader = Process(target=self._load_file_thread,
-                                   args=(file_path, self.raw_data_q, self.batch_size), daemon=True)
-        self.file_reader.start()
+        self.file_reader: ProcessContext = spawn(self._load_file_thread, (file_path, self.raw_data_q, self.batch_size), 1, join=False, daemon=True)
 
         # start chunk orderer
-        self.chunk_orderer = Process(target=self._order_chunks_thread,
-                                     args=(self.raw_data_q, self.chunk_q, self.chunk_size), daemon=True)
-        self.chunk_orderer.start()
+        self.chunk_orderer: ProcessContext = spawn(self._order_chunks_thread, (self.raw_data_q, self.chunk_q, self.chunk_size), 1, join=False, daemon=True)
 
         # start processors
-        self.processors: list[Process] = []
-        for _ in range(os.cpu_count() if num_processors is None else num_processors):
-            p = Process(target=self._process_chunks_thread,
-                        args=(self.chunk_q, self.processed_chunk_q, self.file_size), daemon=True)
-            p.start()
-            self.processors.append(p)
+        self.num_processors = os.cpu_count() if num_processors is None else num_processors
+        self.processors: ProcessContext = spawn(self._process_chunks_thread, (self.chunk_q, self.processed_chunk_q, self.file_size), self.num_processors, join=False, daemon=True)
 
         # start batchifier
-        self.batchifier = Process(target=self._offset_processed_chunks_thread,
-                                  args=(self.processed_chunk_q, self.batch_q), daemon=True)
-        self.batchifier.start()
-
-    def __del__(self):
-        # terminate processes on drop
-        self.file_reader.terminate()
-        self.chunk_orderer.terminate()
-
-        for p in self.processors:
-            p.terminate()
-
-        self.batchifier.terminate()
+        self.batchifier: ProcessContext = spawn(self._offset_processed_chunks_thread, (self.processed_chunk_q, self.batch_q), 1, join=False, daemon=True)
 
     @staticmethod
-    def _load_file_thread(path: Path, raw_data_q: Queue[bytes | None], max_bytes_read: int):
+    def _load_file_thread(_, path: Path, raw_data_q: Queue[bytes | None], max_bytes_read: int):
         with open(path, 'rb') as file:
             while True:
                 file.seek(0)
@@ -104,7 +84,7 @@ class ParallelLoader:
                 raw_data_q.put(None, block=True)
 
     @staticmethod
-    def _order_chunks_thread(raw_data_q: Queue[bytes | None], chunk_q: Queue[tuple[int, tuple[int, np.ndarray] | None]], chunk_size: int):
+    def _order_chunks_thread(_, raw_data_q: Queue[bytes | None], chunk_q: Queue[tuple[int, tuple[int, np.ndarray] | None]], chunk_size: int):
         overflow = np.array([], dtype=np.uint8)
         first_chunk_pos = 0  # should only count bytes from well-formed chunks
 
@@ -157,7 +137,7 @@ class ParallelLoader:
             first_chunk_pos += len(data)
 
     @staticmethod
-    def _process_chunks_thread(chunk_q: Queue[tuple[int, tuple[int, np.ndarray] | None]], processed_chunk_q: Queue[tuple[int, tuple[torch.Tensor, torch.Tensor] | None]], file_size: int):
+    def _process_chunks_thread(_process_index: int, chunk_q: Queue[tuple[int, tuple[int, np.ndarray] | None]], processed_chunk_q: Queue[tuple[int, tuple[torch.Tensor, torch.Tensor] | None]], file_size: int):
         while True:
             num, data = chunk_q.get()
 
@@ -176,7 +156,7 @@ class ParallelLoader:
             processed_chunk_q.put((num, (inputs, targets)), block=True)
 
     @staticmethod
-    def _offset_processed_chunks_thread(processed_chunk_q: Queue[tuple[int, tuple[torch.Tensor, torch.Tensor] | None]], batch_q: Queue[tuple[torch.Tensor, torch.Tensor] | None]):
+    def _offset_processed_chunks_thread(_, processed_chunk_q: Queue[tuple[int, tuple[torch.Tensor, torch.Tensor] | None]], batch_q: Queue[tuple[torch.Tensor, torch.Tensor] | None]):
         tmp_packets = []
         current_packet_num = 0
 
@@ -192,7 +172,7 @@ class ParallelLoader:
                     if num == current_packet_num:
                         tmp_packets.pop(i)
 
-                        # if file ended
+                        # if the file ended
                         if data is None:
                             previous_last_input = None
 
@@ -207,12 +187,12 @@ class ParallelLoader:
                         if previous_last_input is None:
                             previous_last_input = torch.unsqueeze(inputs[-1], dim=0)
 
-                            # cut off first target and last input
+                            # cut off the first target and last input
                             inputs = inputs[:-1]
                             targets = targets[1:]
 
                         else:
-                            # concat previous last input to the front of inputs and cut off last input
+                            # concat the previous last input to the front of inputs and cut off last input
                             next_last_input = torch.unsqueeze(inputs[-1], dim=0)
                             inputs = torch.concat((previous_last_input, inputs[:-1]))
                             previous_last_input = next_last_input
@@ -226,7 +206,14 @@ class ParallelLoader:
                     break
 
     def get_chunks(self):
-        return self.batch_q.get()
+        batch = self.batch_q.get()
+
+        if batch is None:
+            return None
+
+        # move to GPU (cannot send GPU Tensors from thread to thread)
+        inputs, targets = batch
+        return inputs.to(lib.DEVICE), targets.to(lib.DEVICE)
 
     @staticmethod
     def chunks_to_inputs(chunks: np.ndarray, first_chunk_pos: int, file_size: int) -> torch.Tensor:
@@ -251,7 +238,7 @@ class ParallelLoader:
         # convert to tensor
         inputs = torch.from_numpy(inputs)
 
-        return inputs.to(lib.DEVICE)
+        return inputs
 
     @staticmethod
     def chunks_to_targets(chunks: np.ndarray) -> torch.Tensor:
@@ -266,11 +253,21 @@ class ParallelLoader:
         targets = targets.astype(np.float32)
         targets = torch.from_numpy(targets)
 
-        return targets.to(lib.DEVICE)
+        return targets
 
 
 if __name__ == "__main__":
-    loader = ParallelLoader(Path("data") / "g2bb.jpg", 1, 2 ** 12 - 5, num_processors=8)
+    _file_path = Path("data") / "g2bb.jpg"
+
+    _file_size = os.path.getsize(_file_path)
+    print(f"File contains {_file_size:,} B")
+
+    _chunk_size = 32
+    loader = ParallelLoader(_file_path, _chunk_size, 2 ** 12 - 5, num_processors=1)
+
+    # calculate the expected number of bytes to be predicted;
+    # we only predict complete chunks, and the last/first one cannot be used as input/target
+    expected_bytes = _chunk_size * (_file_size // _chunk_size - 1)
 
     while True:
         _total = 0
@@ -283,4 +280,5 @@ if __name__ == "__main__":
 
             print(torch.flatten(_targets).tolist())
 
-        input(_total)
+        print(f"Expected total {expected_bytes:,} B")
+        input(f"Seen total     {_total:,} B")

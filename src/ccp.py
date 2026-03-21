@@ -17,7 +17,7 @@ import lib
 from file_loader import ParallelLoader
 
 
-BYTES_PER_STEP = 2 ** 16
+BYTES_PER_STEP = 2 ** 15
 EPOCHS = 80
 OPTIMIZER_SWAP_EPOCHS = EPOCHS // 2
 EVAL_EVERY_EPOCHS = 8
@@ -48,7 +48,7 @@ if __name__ == '__main__':
 def main(file_path):
     # create model
     model = LongMaster()
-    # model.compile()
+    model.compile()
 
     # initialize model weights
     model.apply(model.init_weights)

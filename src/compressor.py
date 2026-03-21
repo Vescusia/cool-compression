@@ -21,7 +21,7 @@ def compress(file_path: Path, model_path: Path = None):
     num_weights = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     # set chunk size
-    chunk_size = model.chunk_size
+    chunk_size = model._chunk_size
     print(f"Chunk size: {chunk_size} B")
     batch_size_bytes = 2 ** 15
 
