@@ -1,5 +1,4 @@
-from model import LongMaster
-from model_manager import load_model, load_model_with_state_dict
+from model_manager import load_model
 from pathlib import Path
 import torch
 from file_loader import ParallelLoader
@@ -10,20 +9,18 @@ import tqdm
 
 def compress(file_path: Path, model_path: Path = None):
     # load model
-    if os.path.basename(model_path).split(".")[-1] == "pt":
+    if model_path.suffix == ".pt":
         model = load_model(Path(model_path))
-    elif os.path.basename(model_path).split(".")[-1] == "dict":
-        model = load_model_with_state_dict(LongMaster, Path(model_path))
     else:
-        exit("fehler beim laden des models, weil vielleicht der pfad falsch ist?")
+        exit("fehler beim laden des models, weil vielleicht der pfad falsch ist!?")
 
     # get number of model weights
     num_weights = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
     # set chunk size
-    chunk_size = model._chunk_size
+    chunk_size = model.chunk_size
     print(f"Chunk size: {chunk_size} B")
-    batch_size_bytes = 2 ** 15
+    batch_size_bytes = 2 ** 16
 
     # get file size
     # total_bytes = os.path.getsize(file_path)
@@ -99,4 +96,4 @@ def compress(file_path: Path, model_path: Path = None):
 
 
 if __name__ == "__main__":
-    compress(Path("./data/g2bb.jpg"), Path("models/model_2026_03.17_20-44.pt"))
+    compress(Path("./data/tub_chem.bmp"), Path("models/model_2026_03.23_15-21.pt"))

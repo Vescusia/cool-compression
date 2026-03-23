@@ -12,15 +12,15 @@ from torchviz import make_dot
 from tqdm import tqdm
 
 import model_manager
-from model import LongMaster, LSTMState
+from model import LongMaster
 import lib
 from file_loader import ParallelLoader
 
 
-BYTES_PER_STEP = 2 ** 15
-EPOCHS = 80
+BYTES_PER_STEP = 2 ** 20
+EPOCHS = 200
 OPTIMIZER_SWAP_EPOCHS = EPOCHS // 2
-EVAL_EVERY_EPOCHS = 8
+EVAL_EVERY_EPOCHS = 10
 VISUALIZE_MODEL = False  # NEEDS GRAPHVIZ!!
 
 
@@ -41,6 +41,7 @@ class FilePrinter:
 
 if __name__ == '__main__':
     LOGGER = FilePrinter(Path('log.txt'))
+    LOGGER(f"Running on {lib.DEVICE}")
 
 
 @click.command()
@@ -57,12 +58,12 @@ def main(file_path):
     # print number of parameters
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     num_lstm_params = sum(p.numel() for p in model.lstm.parameters() if p.requires_grad)
-    num_res_net_params = sum(p.numel() for p in model.res_lstm.parameters() if p.requires_grad)
+    num_res_net_params = sum(p.numel() for p in model.res_net.parameters() if p.requires_grad)
     num_last_fc_params = sum(p.numel() for p in model.fc_to_output.parameters() if p.requires_grad)
     LOGGER(f"Model parameters: {num_params:,} ({num_lstm_params:,} LSTM, {num_res_net_params:,} ResNet, {num_last_fc_params:,} Last FC)")
 
     # define fast/first optimizer
-    optim = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0)
+    optim = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=0)
     # optim = torch.optim.LBFGS(model.parameters(), lr=1., max_iter=30)
 
     # define loss function
@@ -123,7 +124,7 @@ def main(file_path):
 
                 # swap to slow optimizer
                 if epoch == OPTIMIZER_SWAP_EPOCHS:
-                    optim = torch.optim.SGD(model.parameters(), lr=0.01, weight_decay=0.)
+                    optim = torch.optim.SGD(model.parameters(), lr=0.05, weight_decay=0.)
 
                 # keep track of time spent doing stuff
                 total_train_time += time() - start_train
@@ -150,7 +151,6 @@ def main(file_path):
         # save state
         save_dir = Path('models')
         model_manager.save_model(model, save_dir)
-        model_manager.save_model_state_dict(model, save_dir)
 
         # save visualization
         if VISUALIZE_MODEL:
