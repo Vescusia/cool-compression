@@ -1,0 +1,10 @@
+[project]
+name = "file_loader"
+version = "1.0.0"
+dependencies = [
+    "numpy",
+]
+
+[build-system]
+requires = ["meson-python", "numpy"]
+build-backend = "mesonpy"

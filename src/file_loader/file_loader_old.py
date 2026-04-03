@@ -5,39 +5,6 @@ from torch.multiprocessing import spawn, Queue, ProcessContext
 import numpy as np
 import torch
 
-import lib
-
-
-def norm_as_bytes(chunk: bytes, chunk_start_pos: int, total_size: int) -> torch.Tensor:
-    # load chunk as floats
-    chunk = np.frombuffer(chunk, dtype=np.uint8)
-    chunk = chunk.astype(np.float32)
-    # normalize to [0, 1]
-    chunk /= 255
-    # convert to tensor
-    chunk = torch.from_numpy(chunk)
-
-    # get index of every byte in the chunk
-    indexes = np.arange(chunk_start_pos, chunk_start_pos + lib.CHUNK_SIZE, dtype=np.float32)
-    # normalize to [0, 1]
-    indexes /= total_size
-    # convert to tensor
-    indexes = torch.from_numpy(indexes)
-
-    # join tensors [a0, b0, a1, b1, ... ]
-    normed = torch.stack((chunk, indexes), dim=1).flatten()
-    return normed.to(lib.DEVICE)
-
-
-def as_bits(raw_chunk: bytes) -> torch.Tensor:
-    chunk = np.frombuffer(raw_chunk, dtype=np.uint8)
-
-    chunk = np.unpackbits(chunk)
-    chunk = chunk.astype(np.float32)
-
-    chunk = torch.from_numpy(chunk)
-    return chunk.to(lib.DEVICE)
-
 
 def _next_packet_num(num: int) -> int:
     if num < 2 ** 20:
@@ -213,7 +180,7 @@ class ParallelLoader:
 
         # move to GPU (cannot send GPU Tensors from thread to thread)
         inputs, targets = batch
-        return inputs.to(lib.DEVICE), targets.to(lib.DEVICE)
+        return inputs.to("cpu"), targets.to("cpu")
 
     @staticmethod
     def chunks_to_inputs(chunks: np.ndarray, first_chunk_pos: int, file_size: int) -> torch.Tensor:

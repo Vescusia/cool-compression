@@ -14,7 +14,7 @@ from tqdm import tqdm
 import model_manager
 from model import LongMaster
 import lib
-from file_loader import ParallelLoader
+from file_loader import FileLoader
 
 
 BYTES_PER_STEP = 2 ** 20
@@ -22,6 +22,7 @@ EPOCHS = 200
 OPTIMIZER_SWAP_EPOCHS = EPOCHS // 2
 EVAL_EVERY_EPOCHS = 10
 VISUALIZE_MODEL = False  # NEEDS GRAPHVIZ!!
+COMPILE = True
 
 
 class FilePrinter:
@@ -49,7 +50,8 @@ if __name__ == '__main__':
 def main(file_path):
     # create model
     model = LongMaster()
-    model.compile()
+    if COMPILE:
+        model.compile()
 
     # initialize model weights
     model.apply(model.init_weights)
@@ -58,9 +60,10 @@ def main(file_path):
     # print number of parameters
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     num_lstm_params = sum(p.numel() for p in model.lstm.parameters() if p.requires_grad)
+    num_hidden_to_res_params = sum(p.numel() for p in model.hidden_to_res.parameters() if p.requires_grad)
     num_res_net_params = sum(p.numel() for p in model.res_net.parameters() if p.requires_grad)
     num_last_fc_params = sum(p.numel() for p in model.fc_to_output.parameters() if p.requires_grad)
-    LOGGER(f"Model parameters: {num_params:,} ({num_lstm_params:,} LSTM, {num_res_net_params:,} ResNet, {num_last_fc_params:,} Last FC)")
+    LOGGER(f"Model parameters: {num_params:,} ({num_lstm_params:,} LSTM, {num_hidden_to_res_params:,} HiddenToRes, {num_res_net_params:,} ResNet, {num_last_fc_params:,} Last FC)")
 
     # define fast/first optimizer
     optim = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=0)
@@ -72,7 +75,7 @@ def main(file_path):
     last_epoch_loss = 0.
 
     # open the file to compress
-    file_loader = ParallelLoader(file_path, lib.CHUNK_SIZE, BYTES_PER_STEP)
+    file_loader = FileLoader(file_path, lib.CHUNK_SIZE, BYTES_PER_STEP)
 
     # create progressbars
     LOGGER(f"File size: {file_loader.file_size:,.0f} B")
@@ -98,7 +101,7 @@ def main(file_path):
             start_batch_get = time()
 
             # train one the complete file once
-            while batch := file_loader.get_chunks():
+            while batch := file_loader.get_tensor_batch(device=lib.DEVICE):
                 # keep track of time spent doing stuff
                 total_batch_get_time += time() - start_batch_get
                 start_train = time()
@@ -162,7 +165,7 @@ def main(file_path):
             dot.render(save_dir / f'viz_{model_manager.get_file_date()}')
 
 
-def evaluate(model: torch.nn.Module, loader: ParallelLoader):
+def evaluate(model: torch.nn.Module, loader: FileLoader):
     model.eval()
 
     with torch.no_grad():
@@ -178,7 +181,7 @@ def evaluate(model: torch.nn.Module, loader: ParallelLoader):
         pred_mean_diff = 0.
         last_pred_mean = None
 
-        while batch := loader.get_chunks():
+        while batch := loader.get_tensor_batch(device=lib.DEVICE):
             inputs, targets = batch
             num_batches += 1
 

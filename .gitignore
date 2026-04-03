@@ -4,3 +4,7 @@ data
 uv.lock
 log.txt
 models
+
+src/file_loader/build
+src/file_loader/sample.txt
+src/cool_compression.egg-info
