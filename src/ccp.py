@@ -14,10 +14,10 @@ from tqdm import tqdm
 import model_manager
 from model import LongMaster
 import lib
-from file_loader import FileLoader
+from file_loader import TorchFileLoader
 
 
-BYTES_PER_STEP = 2 ** 20
+BYTES_PER_STEP = 2 ** 18
 EPOCHS = 200
 OPTIMIZER_SWAP_EPOCHS = EPOCHS // 2
 EVAL_EVERY_EPOCHS = 10
@@ -75,7 +75,7 @@ def main(file_path):
     last_epoch_loss = 0.
 
     # open the file to compress
-    file_loader = FileLoader(file_path, lib.CHUNK_SIZE, BYTES_PER_STEP)
+    file_loader = TorchFileLoader(file_path, lib.CHUNK_SIZE, BYTES_PER_STEP, device=lib.DEVICE)
 
     # create progressbars
     LOGGER(f"File size: {file_loader.file_size:,.0f} B")
@@ -100,8 +100,8 @@ def main(file_path):
             total_train_time = 0.
             start_batch_get = time()
 
-            # train one the complete file once
-            while batch := file_loader.get_tensor_batch(device=lib.DEVICE):
+            # train on the complete file once
+            while batch := file_loader.get_batch():
                 # keep track of time spent doing stuff
                 total_batch_get_time += time() - start_batch_get
                 start_train = time()
@@ -165,7 +165,7 @@ def main(file_path):
             dot.render(save_dir / f'viz_{model_manager.get_file_date()}')
 
 
-def evaluate(model: torch.nn.Module, loader: FileLoader):
+def evaluate(model: torch.nn.Module, loader: TorchFileLoader):
     model.eval()
 
     with torch.no_grad():
@@ -181,7 +181,7 @@ def evaluate(model: torch.nn.Module, loader: FileLoader):
         pred_mean_diff = 0.
         last_pred_mean = None
 
-        while batch := loader.get_tensor_batch(device=lib.DEVICE):
+        while batch := loader.get_batch():
             inputs, targets = batch
             num_batches += 1
 

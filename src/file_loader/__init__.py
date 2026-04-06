@@ -1,1 +1,1 @@
-from .lib import FileLoader
+from .lib import FileLoader, TorchFileLoader

@@ -1,16 +1,17 @@
 from model_manager import load_model
 from pathlib import Path
 import torch
-from file_loader import ParallelLoader
+from file_loader import TorchFileLoader
 import os
 import numpy as np
 import tqdm
 
 
-def compress(file_path: Path, model_path: Path = None):
+def compress(file_path: Path, model_path: Path):
     # load model
     if model_path.suffix == ".pt":
         model = load_model(Path(model_path))
+        model = model.to(torch.device("cpu"))
     else:
         exit("fehler beim laden des models, weil vielleicht der pfad falsch ist!?")
 
@@ -20,7 +21,7 @@ def compress(file_path: Path, model_path: Path = None):
     # set chunk size
     chunk_size = model.chunk_size
     print(f"Chunk size: {chunk_size} B")
-    batch_size_bytes = 2 ** 16
+    batch_size_bytes = 2 ** 20
 
     # get file size
     # total_bytes = os.path.getsize(file_path)
@@ -29,8 +30,8 @@ def compress(file_path: Path, model_path: Path = None):
     # two dims, list of alle relative distances between wrong predicted bits per chunk
     relative_indexes = []
 
-    # initialise fileloader, set batch_size_bytes to a nice number :) (not important)
-    file_loader = ParallelLoader(file_path, chunk_size, batch_size_bytes)
+    # initialize the file loader, set batch_size_bytes to a nice number :) (not important) BROOTTTTT
+    loader = TorchFileLoader(file_path, chunk_size, batch_size_bytes)
 
     with torch.no_grad():
         # initialize model state
@@ -48,7 +49,7 @@ def compress(file_path: Path, model_path: Path = None):
         # counting processed batches, for early stoppen, if needed
         counter = 0
 
-        while batch := file_loader.get_chunks():
+        while batch := loader.get_batch():
             inputs, targets = batch
 
             # update progress bar
@@ -61,11 +62,11 @@ def compress(file_path: Path, model_path: Path = None):
             predicted_chunks = predicted_chunks.cpu().numpy()
 
             # do stuff
-            targets = targets.cpu().numpy().ravel().astype(np.uint8)
-            predicted_chunks = predicted_chunks.ravel().astype(np.uint8)
+            targets = targets.cpu().numpy().ravel().astype(np.uint16)
+            predicted_chunks = predicted_chunks.ravel().astype(np.uint16)
 
             # set all wrong bits as 1
-            bool_array = (targets != predicted_chunks).astype(np.uint8)
+            bool_array = (targets != predicted_chunks).astype(np.uint16)
 
             # count all false bits for evaluation (DEL)
             count_false_bits += np.sum(bool_array)
@@ -96,4 +97,4 @@ def compress(file_path: Path, model_path: Path = None):
 
 
 if __name__ == "__main__":
-    compress(Path("./data/tub_chem.bmp"), Path("models/model_2026_03.23_15-21.pt"))
+    compress(Path("data/embedplus.tar"), Path("models/model_2026_04.06_23-17.pt"))

@@ -57,7 +57,7 @@ class LongMaster(nn.Module):
         self.num_layers = 1
 
         # ResNet sizes
-        self.res_width = 16
+        self.res_width = 32
         self.res_bottleneck = 4
         self.res_depth = 10
 

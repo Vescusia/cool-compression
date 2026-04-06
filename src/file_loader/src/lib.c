@@ -148,12 +148,6 @@ batch_t get_batch(void) {
    // move buffer forward
    buf_pos += num_chunks * CHUNK_SIZE;
 
-   return (batch_t) {
-      .num_chunks = num_valid_chunks,
-      .inputs = inputs_out,
-      .targets = targets_out,
-   };
-
    // ---------------------------------------------------------------------------------------|
    // |                                   debug prints                                       |
    // ---------------------------------------------------------------------------------------|
@@ -178,6 +172,10 @@ batch_t get_batch(void) {
    //    printf("| ");
    // }
    // printf("]\n");
-   //
-   // return batch
+
+   return (batch_t) {
+      .num_chunks = num_valid_chunks,
+      .inputs = inputs_out,
+      .targets = targets_out,
+   };
 }
