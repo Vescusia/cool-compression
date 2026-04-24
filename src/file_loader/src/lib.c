@@ -1,13 +1,15 @@
-#include "lib.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <errno.h>
+#include <string.h>
+
+#include "lib.h"
 
 
 FILE* file = NULL;
 
+// file read buffer
 uint8_t buf[BUF_SIZE];
 size_t buf_pos = 0;
 size_t buf_end = 0;
@@ -15,16 +17,18 @@ size_t buf_end = 0;
 size_t CHUNK_SIZE;
 size_t CHUNKS_PER_BATCH;
 
+// processed inputs
 // dangerous restrict
 // but should be fine, as there is no logical overlap because of the chunked data
-float* restrict inputs = NULL;
+static float* restrict inputs = NULL;
 float* previous_last_input_chunk = NULL;  // <--- references inputs
 
-float* restrict targets = NULL;
+// processed targets
+static float* restrict targets = NULL;
 
 
 /**
- * @param chunk_size Size of the chunks in Bytes. Has to be larger than 1. Has to be smaller than @code BUF_SIZE @endcode
+ * @param chunk_size Size of the chunks in Bytes. Has to be >= 1. Has to be smaller than @code BUF_SIZE @endcode
  * @param chunks_per_batch Maximum chunks per batch. Returned batches can and will be smaller.
  * @param file_  File to be read from. Assumed to be seeked properly and not NULL.
  */
@@ -35,8 +39,8 @@ int init(const size_t chunk_size, const size_t chunks_per_batch, FILE* file_) {
    file = file_;
 
    // allocate input and target buffers
-   inputs = calloc(sizeof(float) * INPUT_CHUNK_SIZE, CHUNKS_PER_BATCH + 1);  // one more chunk for shifting inputs
-   targets = calloc(sizeof(float) * TARGET_CHUNK_SIZE, CHUNKS_PER_BATCH);
+   inputs = calloc(INPUT_CHUNK_SIZE_BYTES, CHUNKS_PER_BATCH + 1);  // one more chunk for shifting inputs
+   targets = calloc(TARGET_CHUNK_SIZE_BYTES, CHUNKS_PER_BATCH);
 
    if (inputs == NULL || targets == NULL) {
       errno = ENOMEM;
@@ -91,9 +95,7 @@ batch_t get_batch(void) {
 
    // copy previous last input chunk to the front of this batch
    if (previous_last_input_chunk != NULL) {
-      for (size_t i = 0; i < INPUT_CHUNK_SIZE; i++) {
-         inputs[i] = previous_last_input_chunk[i];
-      }
+      memmove(inputs, previous_last_input_chunk, INPUT_CHUNK_SIZE_BYTES);
    }
 
    // chunks to inputs
@@ -142,8 +144,8 @@ batch_t get_batch(void) {
    }
 
    // store previous last input chunk
-   // actually, we would want to shift by num_chunks - 1, to properly reference the last chunk,
-   // but we have the placeholder initial chunk, so this is equivalent.
+   // we would usually have to shift by num_chunks-1 to properly reference the last chunk,
+   // but with the placeholder initial chunk, this is equivalent.
    previous_last_input_chunk = inputs + num_chunks * INPUT_CHUNK_SIZE;
    // move buffer forward
    buf_pos += num_chunks * CHUNK_SIZE;

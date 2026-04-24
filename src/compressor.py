@@ -11,7 +11,7 @@ def compress(file_path: Path, model_path: Path):
     # load model
     if model_path.suffix == ".pt":
         model = load_model(Path(model_path))
-        model = model.to(torch.device("cpu"))
+        model = model.to('cpu')
     else:
         exit("fehler beim laden des models, weil vielleicht der pfad falsch ist!?")
 
@@ -97,4 +97,4 @@ def compress(file_path: Path, model_path: Path):
 
 
 if __name__ == "__main__":
-    compress(Path("data/embedplus.tar"), Path("models/model_2026_04.06_23-17.pt"))
+    compress(Path("data/g2bb.jpg"), Path("models/model_2026_04.24_03-13.pt"))

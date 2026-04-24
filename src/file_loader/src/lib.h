@@ -9,18 +9,21 @@ extern size_t CHUNK_SIZE;
 extern size_t CHUNKS_PER_BATCH;
 
 #define INPUT_CHUNK_SIZE (CHUNK_SIZE)
+#define INPUT_CHUNK_SIZE_BYTES (sizeof(float) * INPUT_CHUNK_SIZE)
 // one float for every bit
 #define TARGET_CHUNK_SIZE (8 * CHUNK_SIZE)
+#define TARGET_CHUNK_SIZE_BYTES (sizeof(float) * TARGET_CHUNK_SIZE)
 
 
 int init(size_t,  size_t, FILE*);
 
+
 typedef struct batch_t {
-    /// if num chunks is 0, inputs and targets are NULL
+    /// if num_chunks is 0, inputs and targets are NULL
     size_t num_chunks;
-    /// has len of @code num_chunks * INPUT_CHUNK_SIZE @endcode
+    /// has len of @code num_chunks * INPUT_CHUNK_SIZE_BYTES@endcode
     float* inputs;
-    /// has len of @code num_chunks * TARGET_CHUNK_SIZE @endcode
+    /// has len of @code num_chunks * TARGET_CHUNK_SIZE_BYTES@endcode
     float* targets;
 } batch_t;
 
