@@ -1,5 +1,5 @@
 # MMM BROT (Bio Brötchen????)
-# BROTPAUSE??
+# BROTPAUSE?? JAAAAAAA
 
 import datetime
 from pathlib import Path
@@ -14,7 +14,6 @@ import model_manager
 from model import LongMaster
 import lib
 from file_loader import TorchFileLoader
-
 
 BYTES_PER_STEP = 2 ** 17
 EPOCHS = 1000
