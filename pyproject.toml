@@ -9,6 +9,7 @@ dependencies = [
     "scikit-learn==1.9.0",
     "tqdm==4.70.0",
     "cccp-file-loader",
+    "cccp_vle",
 ]
 
 
@@ -33,6 +34,7 @@ conflicts = [
 
 [tool.uv.sources]
 cccp-file-loader = { path = "cccp/cccp_file_loader" }
+cccp_vle = { path = "cccp/cccp_vle" }
 
 torch = [
     { index = "pytorch-cpu", extra = "cpu" },

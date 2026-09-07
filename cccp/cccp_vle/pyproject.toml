@@ -1,0 +1,10 @@
+[project]
+name = "cccp-vle"
+version = "1.0.0"
+dependencies = [
+    "numpy",
+]
+
+[build-system]
+requires = ["meson-python", "numpy"]
+build-backend = "mesonpy"
