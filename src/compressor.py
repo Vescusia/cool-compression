@@ -5,7 +5,7 @@ from file_loader import TorchFileLoader
 import os
 import numpy as np
 import tqdm
-
+import cccp_vle
 
 def compress(file_path: Path, model_path: Path):
     # load model
@@ -95,6 +95,21 @@ def compress(file_path: Path, model_path: Path):
     print(f"required size:           {count_false_bits * (np.log2(round(mean)) + 1 + 1) / 8 + num_weights * 4:,.0f} B")
     print(f"file size in bytes/bits: {total_bytes:,} / {total_bytes * 8:,}")
 
+    relative_indexes = np.array(relative_indexes[0], dtype=np.uint8)
+    print(relative_indexes, relative_indexes.shape)
+    enc_array = cccp_vle.npy_encoding(relative_indexes, 3)
+    print(enc_array, enc_array.shape)
+
+    np.save("data/hurricane.npy", enc_array)
+    print("model saved")
+
+    #dec_array = cccp_vle.npy_decoding(enc_array, 3)
+    #print(dec_array, dec_array.shape)
+
+    loaded_array = np.load("data/hurricane.npy", allow_pickle=True)
+    dec_array = cccp_vle.npy_decoding(loaded_array, 3)
+    print(dec_array, dec_array.shape)
+
 
 if __name__ == "__main__":
-    compress(Path("data/g2bb.jpg"), Path("models/model_2026_04.24_03-13.pt"))
+    compress(Path("data/hurricane.jpg"), Path("models/model_2026_09.07_16-35.pt"))
