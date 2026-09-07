@@ -165,9 +165,6 @@ def evaluate(model: torch.nn.Module, loader: TorchFileLoader):
     mean_distances = []
 
     with torch.no_grad():
-        total_correct = 0
-        total_bits = 0
-
         # initialize model state
         state = model.init_state()
 
@@ -193,20 +190,15 @@ def evaluate(model: torch.nn.Module, loader: TorchFileLoader):
 
             # calculate relative wrong bit distances
             distances = rd.to_relative(predicted_chunks, targets)
-            mean_distances.append(distances.mean())
-
-            # calculate accuracy
-            num_bits_in_batch = len(targets) * len(targets[0])
-            total_bits += num_bits_in_batch
-            total_correct += num_bits_in_batch - len(distances)
+            mean_distances.append(np.mean(distances))
 
         pred_std /= num_batches
 
         # estimate file size
         mean_distance = np.mean(mean_distances)
-        file_size = (round(np.log2(mean_distance)) + 1 + 1) * (total_bits - total_correct) / 8 + num_params * 4
+        file_size = (np.log2(mean_distance) + 1 + 1) * rd.total_incorrect_bits / 8 + num_params * 4
 
-        LOGGER(f"\n{total_bits:,} Bits, {total_correct:,} correct, {total_correct / total_bits:.3%}, (STD: {pred_std:.5}, DIFF: {pred_mean_diff:.5}, File Size: {file_size:,.0f} B)")
+        LOGGER(f"\n{rd.total_bits:,} bits, {rd.total_correct_bits:,} correct, {rd.total_incorrect_bits:,} incorrect, {rd.total_correct_bits / rd.total_bits:.3%}, (STD: {pred_std:.5}, DIFF: {pred_mean_diff:.5}, File Size: {file_size:,.0f} B)")
 
     model.train()
 

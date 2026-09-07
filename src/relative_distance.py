@@ -5,9 +5,17 @@ import torch
 class RelativeDistance:
     def __init__(self):
         self.previous_last_dist: int | None = None
+        self.total_bits: int = 0
+        self.total_incorrect_bits: int = 0
 
     def reset(self):
         self.previous_last_dist = None
+        self.total_bits = 0
+        self.total_incorrect_bits = 0
+
+    @property
+    def total_correct_bits(self) -> int:
+        return self.total_bits - self.total_incorrect_bits
 
     def to_relative(self, predictions: torch.Tensor, targets: torch.Tensor) -> np.ndarray:
         """
@@ -22,10 +30,12 @@ class RelativeDistance:
 
         # unpack targets
         targets = targets.cpu().numpy().ravel()
+        self.total_bits += len(targets)
 
         # get indices of different bits
         different_bits = (predictions != targets).astype(np.uint16)
         different_bits = np.argwhere(different_bits).ravel()
+        self.total_incorrect_bits += len(different_bits)
 
         if len(different_bits) == 0:
             print("Perfect prediction")
