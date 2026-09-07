@@ -8,7 +8,6 @@ from time import time
 import click
 import torch
 import numpy as np
-from torchviz import make_dot
 from tqdm import tqdm
 
 import model_manager
@@ -21,7 +20,6 @@ BYTES_PER_STEP = 2 ** 17
 EPOCHS = 1000
 OPTIMIZER_SWAP_EPOCHS = EPOCHS // 2
 EVAL_EVERY_EPOCHS = 50
-VISUALIZE_MODEL = False  # NEEDS GRAPHVIZ!!
 COMPILE = True
 
 
@@ -154,15 +152,6 @@ def main(file_path):
         # save state
         save_dir = Path('models')
         model_manager.save_model(model, save_dir)
-
-        # save visualization
-        if VISUALIZE_MODEL:
-            dummy_input = torch.zeros((1, lib.CHUNK_SIZE * 2), device=lib.DEVICE)
-            hx, cx = model.init_state()
-            dummy_output = model(dummy_input, hx, cx)
-            dot = make_dot(dummy_output, params=dict(model.named_parameters()))
-            dot.format = 'png'
-            dot.render(save_dir / f'viz_{model_manager.get_file_date()}')
 
 
 def evaluate(model: torch.nn.Module, loader: TorchFileLoader):

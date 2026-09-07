@@ -1,5 +1,5 @@
 [project]
-name = "file_loader"
+name = "cccp-file-loader"
 version = "1.0.0"
 dependencies = [
     "numpy",

@@ -64,13 +64,13 @@ static PyMethodDef fl_methods[] = {
 
 static PyModuleDef fl_module = {
     .m_base = PyModuleDef_HEAD_INIT,
-    .m_name = "c_file_loader",
+    .m_name = "cccp_file_loader",
     .m_size = 0,  // non-negative
     .m_methods = fl_methods,
 };
 
 PyMODINIT_FUNC
-PyInit_ccpc_file_loader(void)
+PyInit_cccp_file_loader(void)
 {
     import_array();
 

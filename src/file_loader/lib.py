@@ -4,7 +4,7 @@ from time import time, sleep
 import numpy as np
 
 # import c extension
-import ccpc_file_loader
+import cccp_file_loader
 
 
 class FileLoader:
@@ -18,7 +18,7 @@ class FileLoader:
         assert self.file_path.is_file()
         self.file_size = self.file_path.stat().st_size
 
-        ccpc_file_loader.init(self.chunk_size, self.chunks_per_batch, str(self.file_path.absolute()))
+        cccp_file_loader.init(self.chunk_size, self.chunks_per_batch, str(self.file_path.absolute()))
 
     @staticmethod
     def get_batch() -> tuple[np.ndarray, np.ndarray] | None:
@@ -26,7 +26,7 @@ class FileLoader:
         :return: tuple of (inputs, targets) or `None` if the file has been fully read.
                  calling this function after it returned `None` will start reading from the beginning of the file again
         """
-        return ccpc_file_loader.get_batch()
+        return cccp_file_loader.get_batch()
 
 
 class TorchFileLoader:

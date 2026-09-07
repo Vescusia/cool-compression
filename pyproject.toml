@@ -4,12 +4,11 @@ version = "0.1.0"
 description = "CCP for every file on every machine!"
 requires-python = ">=3.14"
 dependencies = [
-    "click>=8.3.1",
-    "numpy>=2.4.4",
-    "scikit-learn>=1.8.0",
-    "torchviz>=0.0.3",
-    "tqdm>=4.67.3",
-    "file_loader"
+    "click==8.5.0",
+    "numpy==2.5.3",
+    "scikit-learn==1.9.0",
+    "tqdm==4.70.0",
+    "cccp-file-loader",
 ]
 
 
@@ -33,7 +32,8 @@ conflicts = [
 ]
 
 [tool.uv.sources]
-file_loader = { path = "src/file_loader" }
+cccp-file-loader = { path = "cccp/cccp_file_loader" }
+
 torch = [
     { index = "pytorch-cpu", extra = "cpu" },
     { index = "pytorch-cu128", extra = "cu128" },

@@ -17,7 +17,7 @@ sources = files('src/py_file_loader.c', 'src/lib.c')
 
 # define module
 extension_module = py.extension_module(
-    'ccpc_file_loader',
+    'cccp_file_loader',
     sources,
     dependencies: [np_dep],
     install: true,
