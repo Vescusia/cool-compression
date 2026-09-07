@@ -52,7 +52,7 @@ int init(const size_t chunk_size, const size_t chunks_per_batch, FILE* file_) {
 
 
 batch_t get_batch(void) {
-   // check if enough data for at least one chunk are in the buffer
+   // check if enough data for at least one chunk is in the buffer
    // this means it can potentially return nothing when previous last chunk is NULL (and we only get enough for one chunk)
    if (buf_end - buf_pos < CHUNK_SIZE) {
       // copy remaining bytes to front

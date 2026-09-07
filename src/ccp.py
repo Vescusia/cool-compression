@@ -14,6 +14,7 @@ import model_manager
 from model import LongMaster
 import lib
 from file_loader import TorchFileLoader
+from relative_distance import RelativeDistance
 
 BYTES_PER_STEP = 2 ** 17
 EPOCHS = 1000
@@ -156,6 +157,13 @@ def main(file_path):
 def evaluate(model: torch.nn.Module, loader: TorchFileLoader):
     model.eval()
 
+    # get number of model weights
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    # compute relative distance between wrong predicted bits
+    rd = RelativeDistance()
+    mean_distances = []
+
     with torch.no_grad():
         total_correct = 0
         total_bits = 0
@@ -176,27 +184,29 @@ def evaluate(model: torch.nn.Module, loader: TorchFileLoader):
             # predict next chunks
             predicted_chunks, state = model(inputs, state)
 
-            # compute prediction stats
+            # compute stochastic metrics
             pred_std += predicted_chunks.std()
             if last_pred_mean is None:
                 last_pred_mean = predicted_chunks.mean()
             else:
                 pred_mean_diff += abs(predicted_chunks.mean() - last_pred_mean)
 
-            # round
-            predicted_chunks = torch.round(predicted_chunks)
-            predicted_chunks = predicted_chunks.cpu().numpy()
-
-            # convert targets to numpy
-            targets = targets.cpu().numpy()
+            # calculate relative wrong bit distances
+            distances = rd.to_relative(predicted_chunks, targets)
+            mean_distances.append(distances.mean())
 
             # calculate accuracy
-            total_correct += np.sum(targets == predicted_chunks)
-            total_bits += len(targets) * len(targets[0])
+            num_bits_in_batch = len(targets) * len(targets[0])
+            total_bits += num_bits_in_batch
+            total_correct += num_bits_in_batch - len(distances)
 
         pred_std /= num_batches
 
-        LOGGER(f"\n{total_bits:,} Bits, {total_correct:,} correct, {total_correct / total_bits:.3%}, (STD: {pred_std:.5}, DIFF: {pred_mean_diff:.5})")
+        # estimate file size
+        mean_distance = np.mean(mean_distances)
+        file_size = (round(np.log2(mean_distance)) + 1 + 1) * (total_bits - total_correct) / 8 + num_params * 4
+
+        LOGGER(f"\n{total_bits:,} Bits, {total_correct:,} correct, {total_correct / total_bits:.3%}, (STD: {pred_std:.5}, DIFF: {pred_mean_diff:.5}, File Size: {file_size:,.0f} B)")
 
     model.train()
 
