@@ -4,10 +4,11 @@ from pathlib import Path
 
 
 def get_file_date():
-    return datetime.datetime.now().strftime('%Y_%m.%d_%H-%M')
+    return datetime.datetime.now().strftime('%Y-%m-%d_%H-%M')
 
 
 def save_model_state_dict(model: torch.nn.Module, save_path: Path):
+    print("DO NOT USE THIS FUNCTION, USE load_model_with_state_dict() INSTEAD!")
     name: str = f"model_{get_file_date()}.dict"
     save_path.mkdir(parents=True, exist_ok=True)
 
@@ -20,8 +21,8 @@ def load_model_with_state_dict(model: torch.nn.Module, path_to_model: Path):
     return model
 
 
-def save_model(model: torch.nn.Module, save_path: Path):
-    name: str = f"model_{get_file_date()}.pt"
+def save_model(model: torch.nn.Module, save_path: Path, file_path: str):
+    name: str = file_path.split("/")[-1] + f"_{get_file_date()}.pt"
     save_path.mkdir(parents=True, exist_ok=True)
 
     torch.save(model, save_path / name)

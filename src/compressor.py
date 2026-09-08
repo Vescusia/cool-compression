@@ -6,6 +6,7 @@ import os
 import numpy as np
 import tqdm
 import cccp_vle
+import shutil
 
 def compress(file_path: Path, model_path: Path):
     # load model
@@ -100,16 +101,23 @@ def compress(file_path: Path, model_path: Path):
     enc_array = cccp_vle.npy_encoding(relative_indexes, 3)
     print(enc_array, enc_array.shape)
 
-    np.save("data/hurricane.npy", enc_array)
-    print("model saved")
+    compression_path = str(model_path.name) + ".ccp"
+    if not os.path.exists(compression_path): os.mkdir(compression_path)
+    np.save(Path(compression_path) / "0.npy", enc_array)
+    print("wrong bits saved")
+    shutil.copy(model_path, Path(compression_path) / model_path.name)
 
-    #dec_array = cccp_vle.npy_decoding(enc_array, 3)
-    #print(dec_array, dec_array.shape)
+    return
 
-    loaded_array = np.load("data/hurricane.npy", allow_pickle=True)
-    dec_array = cccp_vle.npy_decoding(loaded_array, 3)
-    print(dec_array, dec_array.shape)
+def inflate(compressed_dir_path: Path):
+
+    for f in compressed_dir_path.iterdir():
+        loaded_array = np.load(compressed_dir_path / f, allow_pickle=True)
+        dec_array = cccp_vle.npy_decoding(loaded_array, 3)
+        print(dec_array, dec_array.shape)
+
+
 
 
 if __name__ == "__main__":
-    compress(Path("data/hurricane.jpg"), Path("models/model_2026_09.07_16-35.pt"))
+    compress(Path("data/hurricane.jpg"), Path("models/hurricane.jpg_2026-09-08_14-27.pt"))

@@ -151,7 +151,7 @@ def main(file_path):
 
         # save state
         save_dir = Path('models')
-        model_manager.save_model(model, save_dir)
+        model_manager.save_model(model, save_dir, file_path)
 
 
 def evaluate(model: torch.nn.Module, loader: TorchFileLoader):
