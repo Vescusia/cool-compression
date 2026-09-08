@@ -1,13 +1,25 @@
-from model_manager import load_model
-from pathlib import Path
-import torch
-from file_loader import TorchFileLoader
 import os
+from pathlib import Path
+
+import torch
 import numpy as np
 import tqdm
+import matplotlib.pyplot as plt
+import click
+
+from model_manager import load_model
+from file_loader import TorchFileLoader
 import cccp_vle
 
-def compress(file_path: Path, model_path: Path):
+
+@click.command()
+@click.argument('model-path', type=click.Path(exists=True, dir_okay=False))
+@click.argument('file-path', type=click.Path(exists=True, dir_okay=False))
+def compress(model_path: str, file_path: str):
+    # convert to Paths
+    model_path = Path(model_path)
+    file_path = Path(file_path)
+
     # load model
     if model_path.suffix == ".pt":
         model = load_model(Path(model_path))
@@ -76,6 +88,7 @@ def compress(file_path: Path, model_path: Path):
 
             # calc distances between adjacent wrong bits (relative indices of wrong bits)
             index_array = index_array - np.concat(([0], index_array[:-1]))
+            index_array = index_array.astype(np.uint16)
 
             # subtract 1 from distances, as the bits have to be at least one apart
             index_array[1:] -= 1
@@ -83,17 +96,19 @@ def compress(file_path: Path, model_path: Path):
             # add relative indices of wrong bits in this chunk to list for all chunks
             relative_indexes.append(index_array)
 
-    # print(relative_indexes)
     bar.close()
 
-    # counter = 0
+    # Print Evaluation Results
     mean = np.mean([np.mean(batch_array) for batch_array in relative_indexes])
     print("mean: ", mean)
-    print("std: ", np.std([np.std(batch_array) for batch_array in relative_indexes]))
+    print("std: ", np.mean([np.std(batch_array) for batch_array in relative_indexes]))
     print("max: ", np.max([np.max(batch_array) for batch_array in relative_indexes]))
-    print(f"correct / false bits:    {total_bytes * 8 - count_false_bits:,} / {count_false_bits:,}")
+    print(f"correct / false bits:    {total_bytes*8 - count_false_bits:,} / {count_false_bits:,}")
     print(f"required size:           {count_false_bits * (np.log2(round(mean)) + 1 + 1) / 8 + num_weights * 4:,.0f} B")
     print(f"file size in bytes/bits: {total_bytes:,} / {total_bytes * 8:,}")
+
+    # plot relative indices
+    plot(np.concat(relative_indexes))
 
     relative_indexes = np.array(relative_indexes[0], dtype=np.uint8)
     print(relative_indexes, relative_indexes.shape)
@@ -111,5 +126,21 @@ def compress(file_path: Path, model_path: Path):
     print(dec_array, dec_array.shape)
 
 
+def plot(distances: np.ndarray):
+    # plot the distribution of distances
+    counts = np.bincount(distances.ravel())
+    total_count = np.sum(counts)
+    relative_frequencies = counts / total_count
+    x_values = range(int(np.max(distances)) + 1)
+    plt.bar(x_values, relative_frequencies)
+
+    # add exponential curve with factor 1/2 in red
+    x_curve = np.arange(0, int(np.max(distances)) + 1)
+    y_curve = relative_frequencies[0] * (0.5 ** x_curve)
+    plt.plot(x_curve, y_curve, 'r-', linewidth=1)
+
+    plt.show()
+
+
 if __name__ == "__main__":
-    compress(Path("data/hurricane.jpg"), Path("models/model_2026_09.07_16-35.pt"))
+    compress()

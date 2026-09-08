@@ -33,7 +33,7 @@ class RelativeDistance:
         self.total_bits += len(targets)
 
         # get indices of different bits
-        different_bits = (predictions != targets).astype(np.uint16)
+        different_bits = (predictions != targets)
         different_bits = np.argwhere(different_bits).ravel()
         self.total_incorrect_bits += len(different_bits)
 
@@ -51,6 +51,7 @@ class RelativeDistance:
         self.previous_last_dist = last_dist
 
         # reduce distance by one, always has to be at least one apart
+        distances = distances.astype(np.uint8)
         distances -= 1
 
         return distances

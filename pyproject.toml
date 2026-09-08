@@ -10,6 +10,7 @@ dependencies = [
     "tqdm==4.70.0",
     "cccp-file-loader",
     "cccp_vle",
+    "matplotlib>=3.11.1",
 ]
 
 

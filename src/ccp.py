@@ -10,6 +10,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
+import cccp_vle
 import model_manager
 from model import LongMaster
 import lib
@@ -163,6 +164,9 @@ def evaluate(model: torch.nn.Module, loader: TorchFileLoader):
     # compute relative distance between wrong predicted bits
     rd = RelativeDistance()
     mean_distances = []
+    std_distances = []
+    total_encoded_bytes = 0
+    all_distances = []
 
     with torch.no_grad():
         # initialize model state
@@ -190,15 +194,31 @@ def evaluate(model: torch.nn.Module, loader: TorchFileLoader):
 
             # calculate relative wrong bit distances
             distances = rd.to_relative(predicted_chunks, targets)
+            all_distances.append(distances)
             mean_distances.append(np.mean(distances))
+            std_distances.append(np.std(distances))
+
+            # encode to variable length encoded bits
+            enc_array = cccp_vle.npy_encoding(distances, 2)
+            total_encoded_bytes += len(enc_array)
 
         pred_std /= num_batches
 
         # estimate file size
-        mean_distance = np.mean(mean_distances)
-        file_size = (np.log2(mean_distance) + 1 + 1) * rd.total_incorrect_bits / 8 + num_params * 4
+        mean_distance = float(np.mean(mean_distances))
+        std_distance = float(np.mean(std_distances))
+        file_size = (np.log2(round(mean_distance)) + 1 + 1) * rd.total_incorrect_bits / 8 + num_params * 4
 
-        LOGGER(f"\n{rd.total_bits:,} bits, {rd.total_correct_bits:,} correct, {rd.total_incorrect_bits:,} incorrect, {rd.total_correct_bits / rd.total_bits:.3%}, (STD: {pred_std:.5}, DIFF: {pred_mean_diff:.5}, File Size: {file_size:,.0f} B)")
+        LOGGER(
+            f"\n{rd.total_bits:,} bits ({rd.total_bits // 8:,} B), "
+            f"{rd.total_correct_bits:,} correct, "
+            f"{rd.total_incorrect_bits:,} incorrect, "
+            f"({rd.total_correct_bits / rd.total_bits:.3%}) "
+            f"Mean Distance: {mean_distance:.2f}, Std Distance {std_distance:.2f}, "
+            f"Pred Std: {pred_std:.5}, Batch Pred Diff: {pred_mean_diff:.5}, "
+            f"Est File Size: {file_size:,.0f} B / {total_encoded_bytes:,.0f} B / {int(np.sum(np.concat(all_distances) + 1) / 8):,} B, "
+            f"\n"
+        )
 
     model.train()
 

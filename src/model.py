@@ -100,7 +100,6 @@ class LongMaster(nn.Module):
 
         # ResNet
         x = self.res_net(x)
-        # x, state = self.res_lstm(x, state)
 
         # Output
         x = self.fc_to_output(x)
