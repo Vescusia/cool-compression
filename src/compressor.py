@@ -18,7 +18,8 @@ from relative_distance import RelativeDistance
 @click.command()
 @click.argument('model-path', type=click.Path(exists=True, dir_okay=False))
 @click.argument('file-path', type=click.Path(exists=True, dir_okay=False))
-def compress(model_path: str, file_path: str):
+@click.option('--vle-bits', type=click.INT, default=2)
+def compress(model_path: str, file_path: str, vle_bits: int):
     # convert to Paths
     model_path = Path(model_path)
     file_path = Path(file_path)
@@ -74,7 +75,7 @@ def compress(model_path: str, file_path: str):
             relative_indexes.append(distances)
 
             # encode distances using variable length encoding
-            encoded_distances.append(cccp_vle.npy_encoding(distances, 3))
+            encoded_distances.append(cccp_vle.npy_encoding(distances, vle_bits))
 
     bar.close()
 
@@ -90,7 +91,7 @@ def compress(model_path: str, file_path: str):
     print(f"file size in B/b:            {file_size:,} / {rd.total_bits:,}")
 
     # plot relative indices
-    plot(np.concat(relative_indexes))
+    plot(np.concat(relative_indexes), vle_bits)
 
     # build and create compression directory
     compression_path = model_path.with_suffix(model_path.suffix + '.ccp')
@@ -109,13 +110,21 @@ def inflate(compressed_dir_path: Path):
         print(dec_array, dec_array.shape)
 
 
-def plot(distances: np.ndarray):
+def plot(distances: np.ndarray, vle_bits_per_bit: int):
     # plot the distribution of distances
     counts = np.bincount(distances.ravel())
     total_count = np.sum(counts)
     relative_frequencies = counts / total_count
     x_values = range(int(np.max(distances)) + 1)
     plt.bar(x_values, relative_frequencies)
+
+    # calculate the total size (using vle) per distance
+    sizes = []
+    for i, count in enumerate(counts):
+        numeric_bits = np.ceil(np.log2(i+1)) if i > 0 else 1
+        bits_per_bit = np.ceil(numeric_bits / (vle_bits_per_bit-1)) * vle_bits_per_bit
+        sizes.append(bits_per_bit * count)
+    plt.bar(x_values, np.array(sizes) / np.sum(sizes), hatch='//', alpha=0.5)
 
     # add exponential curve with factor 1/2 in red
     x_curve = np.arange(0, int(np.max(distances)) + 1)

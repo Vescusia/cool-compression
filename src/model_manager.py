@@ -25,7 +25,7 @@ def save_model(model: torch.nn.Module, save_path: Path, file_path: str):
     name: str = file_path.split("/")[-1] + f"_{get_file_date()}.pt"
     save_path.mkdir(parents=True, exist_ok=True)
 
-    torch.save(model, save_path / name)
+    torch.save(model.to('cpu'), save_path / name)
 
 
 def load_model(path_to_model: Path):
