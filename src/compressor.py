@@ -59,9 +59,6 @@ def compress(model_path: str, file_path: str):
         # progress bar for visual angucken
         bar = tqdm.tqdm(total=file_size, unit='B', unit_scale=True)
 
-        # counting processed batches, for early stoppen, if needed
-        counter = 0
-
         while batch := loader.get_batch():
             inputs, targets = batch
 
@@ -111,21 +108,22 @@ def compress(model_path: str, file_path: str):
     # plot relative indices
     plot(np.concat(relative_indexes))
 
+    # encode relative indices
     relative_indexes = np.array(relative_indexes[0], dtype=np.uint8)
     print(relative_indexes, relative_indexes.shape)
     enc_array = cccp_vle.npy_encoding(relative_indexes, 3)
     print(enc_array, enc_array.shape)
 
-    compression_path = str(model_path.name) + ".ccp"
-    if not os.path.exists(compression_path): os.mkdir(compression_path)
-    np.save(Path(compression_path) / "0.npy", enc_array)
-    print("wrong bits saved")
+    # build and create compression directory
+    compression_path = model_path.with_suffix(model_path.suffix + '.ccp')
+    compression_path.mkdir(parents=True, exist_ok=True)
+
+    # save compressed data
+    np.save(compression_path / "0.npy", enc_array)
     shutil.copy(model_path, Path(compression_path) / model_path.name)
 
-    return
 
 def inflate(compressed_dir_path: Path):
-
     for f in compressed_dir_path.iterdir():
         loaded_array = np.load(compressed_dir_path / f, allow_pickle=True)
         dec_array = cccp_vle.npy_decoding(loaded_array, 3)
