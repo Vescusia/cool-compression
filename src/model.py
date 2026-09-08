@@ -52,14 +52,14 @@ class LongMaster(nn.Module):
         self.output_size = lib.CHUNK_SIZE * 8  # output is in Bits
 
         # LSTM sizes
-        self.use_lstm = True
+        self.use_lstm = False
         self.hidden_size = 4
         self.num_layers = 1
 
         # ResNet sizes
-        self.res_width = 4
-        self.res_bottleneck = 1
-        self.res_depth = 2
+        self.res_width = 16
+        self.res_bottleneck = 3
+        self.res_depth = 8
 
         if self.use_lstm:
             self.lstm = nn.LSTM(
