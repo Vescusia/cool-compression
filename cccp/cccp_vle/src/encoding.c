@@ -10,7 +10,7 @@ struct encArrayTuple{
 };
 
 
-struct encArrayTuple encoding(int bitlen, size_t* relIndexArr, int inputArrayLen){
+struct encArrayTuple compress(int bitlen, size_t* relIndexArr, int inputArrayLen){
 	// encoding with bitlen bits per bit, -> bitlen-1 bits are saved in sequence
 
 	// handle empty array -> return empty array, because no encoding can be done
@@ -37,8 +37,8 @@ struct encArrayTuple encoding(int bitlen, size_t* relIndexArr, int inputArrayLen
 		printf("ERROR! memory allocation failed in encoding \n");
 	}
 
-	//counting added bytes
-	int counter = 0;
+	//counting added bytes, keep first free for unused bits in last byte and to store bitlen
+	int counter = 1;
 
 	// byte in dem so viele sequenzen gespeichert werden, um später zu datei zu schreiben
 	uint8_t encSeq = 0;
@@ -49,14 +49,8 @@ struct encArrayTuple encoding(int bitlen, size_t* relIndexArr, int inputArrayLen
 	// free bits from the right side in encSeq
 	int rfreebits;
 
-	// keep the first 4 bits to store the number of unused bits in last byte at the end
-	if(bitlen > 4){
-		lfreebits = 0;
-		rfreebits = 4;
-	} else{
-		lfreebits = 4 - bitlen;
-		rfreebits = bitlen;
-	}
+	rfreebits = bitlen;
+	lfreebits = 8 - bitlen;
 
 	for(int i = 0; i < inputArrayLen; i++){
 
@@ -174,6 +168,7 @@ struct encArrayTuple encoding(int bitlen, size_t* relIndexArr, int inputArrayLen
 
 	// store unused Bits in last byte in the first 4 bits in the first byte. for decoding
 	encArray[0] = encArray[0] | (unusedBits << 4);
+	encArray[0] = encArray[0] | bitlen;
 
 	// add last byte to array
 	encArray[counter++] = encSeq;
@@ -184,7 +179,7 @@ struct encArrayTuple encoding(int bitlen, size_t* relIndexArr, int inputArrayLen
 		encRelIndexArr[i] = encArray[i];
 	}
 
-	free(encArray); //checked
+	free(encArray);
 
 	struct encArrayTuple tuple;
 	tuple.array = encRelIndexArr;

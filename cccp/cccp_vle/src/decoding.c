@@ -9,7 +9,7 @@ struct decArrayTuple{
 	int len;
 };
 
-struct decArrayTuple decompress(int bitlen, uint8_t* encArray, int storedBytes){
+struct decArrayTuple decompress(uint8_t* encArray, int storedBytes){
 
 	// handle empty array -> return empty array, because no encoding can be done
 	if (storedBytes == 0) {
@@ -23,7 +23,7 @@ struct decArrayTuple decompress(int bitlen, uint8_t* encArray, int storedBytes){
 		return tuple;
 	}
 
-	int decArrayLen = storedBytes * 3;
+	int decArrayLen = storedBytes * 4;
 
 	size_t* decArray = (size_t*) calloc(decArrayLen, sizeof(size_t));
 	if (decArray == NULL) {
@@ -32,17 +32,18 @@ struct decArrayTuple decompress(int bitlen, uint8_t* encArray, int storedBytes){
 
 	// get number of unused bits in last byte
 	int unusedBits = encArray[0] >> 4;
+	int bitlen = encArray[0] & 15;
 
 	// counter for byte we are in. used as index in encoded Array
-	int byteCount = 0;
+	int byteCount = 1;
 
 	// read current byte to decode
 	uint8_t curByte = encArray[byteCount];
 
 	// lBits is number of already decoded Bits, rBits is number of Bits to decode in Byte.
 	// first 4 bits are already used above, so skip these
-	int lBits = 4;
-	int rBits = 4;
+	int lBits = 0;
+	int rBits = 8;
 
 	// count decoded relative indices
 	int countRelIndices = 0;
