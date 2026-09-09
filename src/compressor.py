@@ -94,20 +94,13 @@ def compress(model_path: str, file_path: str, vle_bits: int):
     plot(np.concat(relative_indexes), vle_bits)
 
     # build and create compression directory
-    compression_path = model_path.with_suffix(model_path.suffix + '.ccp')
+    compression_path = "compressed_data" / Path(model_path.name).with_suffix(model_path.suffix + '.ccp')
     compression_path.mkdir(parents=True, exist_ok=True)
 
     # save compressed data
     for i, encoded_array in enumerate(encoded_distances):
         np.save(compression_path / f'{i:03}.npy', encoded_array)
         shutil.copy(model_path, Path(compression_path) / model_path.name)
-
-
-def inflate(compressed_dir_path: Path):
-    for f in compressed_dir_path.iterdir():
-        loaded_array = np.load(compressed_dir_path / f, allow_pickle=True)
-        dec_array = cccp_vle.npy_decoding(loaded_array, 3)
-        print(dec_array, dec_array.shape)
 
 
 def plot(distances: np.ndarray, vle_bits_per_bit: int):

@@ -7,9 +7,8 @@
 #include <numpy/ndarraytypes.h>
 
 static PyObject* npy_decoding(PyObject* self, PyObject* args) {
-    int bitlen;
     PyArrayObject* array;
-    if (!PyArg_ParseTuple(args, "O!i", &PyArray_Type, &array, &bitlen)) {
+    if (!PyArg_ParseTuple(args, "O!", &PyArray_Type, &array)) {
         return NULL;
     }
 
@@ -24,7 +23,7 @@ static PyObject* npy_decoding(PyObject* self, PyObject* args) {
     uint8_t* data = (uint8_t*)PyArray_DATA(array);
 
     // encode/compress input array
-    struct decArrayTuple arrayTuple = decompress(bitlen, data, length);
+    struct decArrayTuple arrayTuple = decompress(data, length);
 
     // create new array to return
     npy_intp dims = arrayTuple.len;
@@ -56,7 +55,7 @@ static PyObject* npy_encoding(PyObject* self, PyObject* args) {
     size_t* data = (size_t*)PyArray_DATA(array);
 
     // encode/compress input array
-    struct encArrayTuple arrayTuple = encoding(bitlen, data, length);
+    struct encArrayTuple arrayTuple = compress(bitlen, data, length);
 
     npy_intp dims = arrayTuple.len;
     // get memory allocated for pointer to return object. &array is random, to get size of a pointer
