@@ -4,6 +4,7 @@ data
 uv.lock
 log.txt
 models
+build
 
 cccp/file_loader/build
 cccp/file_loader/sample.txt

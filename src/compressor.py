@@ -84,7 +84,7 @@ def compress(model_path: str, file_path: str, vle_bits: int):
     print("mean: ", mean)
     print("std: ", np.mean([np.std(batch_array) for batch_array in relative_indexes]))
     print("max: ", np.max([np.max(batch_array) for batch_array in relative_indexes]))
-    print(f"correct / false bits:        {rd.total_bits - rd.total_incorrect_bits:,} / {rd.total_incorrect_bits:,}")
+    print(f"correct / false bits:        {rd.total_correct_bits:,} / {rd.total_incorrect_bits:,} ({rd.total_correct_bits / rd.total_bits:.2%})")
     print(f"est required size:           {rd.total_incorrect_bits * (np.log2(round(mean)) + 1 + 1) / 8 + num_weights * 4:,.0f} B")
     print(f"required size (vle):         {len(np.concat(encoded_distances)):,} B")
     print(f"required size (clementisch): {int(np.sum(np.concat(relative_indexes) + 1)) // 8:,} B")
@@ -110,7 +110,7 @@ def inflate(compressed_dir_path: Path):
         print(dec_array, dec_array.shape)
 
 
-def plot(distances: np.ndarray, vle_bits_per_bit: int):
+def plot(distances: np.ndarray, vle_bits_per_bit: int, display_bits: bool = False):
     # plot the distribution of distances
     counts = np.bincount(distances.ravel())
     total_count = np.sum(counts)
@@ -133,6 +133,19 @@ def plot(distances: np.ndarray, vle_bits_per_bit: int):
 
     plt.show()
 
+    # create a second plot with the false bits as red points
+    if display_bits:
+        a = np.ceil(np.sqrt(np.sum(distances + 1)))  # sqrt of the length of all bits in the file (plot a square)
+        distance_is = np.cumsum(distances.astype(np.uint32) + 1)
+        x_points = distance_is % a
+        y_points = distance_is // a
+
+        plt.scatter(x_points, y_points, marker='s', color='tab:red', s=0.55)
+        plt.show()
+
+    pairs = np.reshape(distances, (-1, 2))
+    pairs = np.sum(pairs, axis=1)
+    print(np.bincount(pairs))
 
 if __name__ == "__main__":
     compress()

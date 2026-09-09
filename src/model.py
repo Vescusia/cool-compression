@@ -128,3 +128,8 @@ class LongMaster(nn.Module):
                     nn.init.kaiming_uniform_(param)
                 elif 'bias' in name:
                     nn.init.constant_(param, 0)
+
+
+class Attention63(nn.Module):
+    def __init__(self):
+        super().__init__()
