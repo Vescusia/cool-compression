@@ -4,13 +4,16 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
+// define datatype of inputarray
+typedef uint16_t datatype;
+
 struct encArrayTuple{
 	uint8_t* array;
-	int len;
+	size_t len;
 };
 
 
-struct encArrayTuple compress(int bitlen, size_t* relIndexArr, int inputArrayLen){
+struct encArrayTuple compress(int bitlen, datatype* relIndexArr, size_t inputArrayLen){
 	// encoding with bitlen bits per bit, -> bitlen-1 bits are saved in sequence
 
 	// handle empty array -> return empty array, because no encoding can be done
@@ -38,7 +41,7 @@ struct encArrayTuple compress(int bitlen, size_t* relIndexArr, int inputArrayLen
 	}
 
 	//counting added bytes, keep first free for unused bits in last byte and to store bitlen
-	int counter = 1;
+	size_t counter = 1;
 
 	// byte in dem so viele sequenzen gespeichert werden, um später zu datei zu schreiben
 	uint8_t encSeq = 0;
@@ -55,7 +58,7 @@ struct encArrayTuple compress(int bitlen, size_t* relIndexArr, int inputArrayLen
 	for(int i = 0; i < inputArrayLen; i++){
 
 		// get current relative index to encode
-		size_t relindex = relIndexArr[i];
+		datatype relindex = relIndexArr[i];
 		
 		// change zero to 1, to enter loop for the first time
 		bool wasZero = false;
@@ -77,7 +80,7 @@ struct encArrayTuple compress(int bitlen, size_t* relIndexArr, int inputArrayLen
 			}
 
 			// make a copy of relindex to work with
-			uint8_t seqBits = relindex;
+			datatype seqBits = relindex;
 			// shift the index to right, so that only the first bitlen-1 bits remain at the right edge
 			if (first){
 				first = false;
@@ -92,7 +95,7 @@ struct encArrayTuple compress(int bitlen, size_t* relIndexArr, int inputArrayLen
 			}
 
 			// cut off the bits that will now be stored
-			relindex &= (size_t) pow(2, cutOffBits) - 1;
+			relindex &= (datatype) pow(2, cutOffBits) - 1;
 
 			// set relindex to 1, to enter next loop, if trailing zeros are still to be stored
 			if (relindex == 0 && cutOffBits > 0) {
@@ -102,7 +105,7 @@ struct encArrayTuple compress(int bitlen, size_t* relIndexArr, int inputArrayLen
 
 			// set prefix bit, if index was too big for this sequence
 			if (cutOffBits > 0) {
-				seqBits |= (int) pow(2, bitlen - 1);
+				seqBits |= (datatype) pow(2, bitlen - 1);
 			}
 			cutOffBits -= (bitlen - 1);
 
@@ -124,11 +127,11 @@ struct encArrayTuple compress(int bitlen, size_t* relIndexArr, int inputArrayLen
 				uint8_t newEncSeq = 0;
 
 				// get the bits that fit in the right free bits in old sequence
-				int tmp = seqBits >> (bitlen - rfreebits);
+				datatype tmp = seqBits >> (bitlen - rfreebits);
 				encSeq = encSeq | tmp;
 
 				// cut off bits that are now stored in old sequence
-				seqBits = seqBits & ((int) (pow(2, bitlen - rfreebits) - 1));
+				seqBits = seqBits & ((datatype) (pow(2, bitlen - rfreebits) - 1));
 				
 				// store übrige bits in new sequence
 				newEncSeq = newEncSeq | seqBits;

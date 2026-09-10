@@ -51,7 +51,7 @@ class RelativeDistance:
         self.previous_last_dist = last_dist
 
         # reduce distance by one, always has to be at least one apart
-        distances = distances.astype(np.uint8)
+        distances = distances.astype(np.uint16)
         distances -= 1
 
         return distances

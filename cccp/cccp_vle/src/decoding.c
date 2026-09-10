@@ -4,17 +4,19 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
+typedef uint16_t datatype;
+
 struct decArrayTuple{
-	size_t* array;
-	int len;
+	datatype* array;
+	size_t len;
 };
 
-struct decArrayTuple decompress(uint8_t* encArray, int storedBytes){
+struct decArrayTuple decompress(uint8_t* encArray, size_t storedBytes){
 
 	// handle empty array -> return empty array, because no encoding can be done
 	if (storedBytes == 0) {
 		free(encArray);
-		size_t* perArray = NULL;
+		datatype* perArray = NULL;
 
 		struct decArrayTuple tuple;
 		tuple.array = perArray;
@@ -25,17 +27,17 @@ struct decArrayTuple decompress(uint8_t* encArray, int storedBytes){
 
 	int decArrayLen = storedBytes * 4;
 
-	size_t* decArray = (size_t*) calloc(decArrayLen, sizeof(size_t));
+	datatype* decArray = (datatype*) calloc(decArrayLen, sizeof(datatype));
 	if (decArray == NULL) {
 		printf("ERROR! memory allocation failed in decoding, decArray \n");
 	}
 
-	// get number of unused bits in last byte
+	// get number of unused bits in last byte and determine bitlen
 	int unusedBits = encArray[0] >> 4;
 	int bitlen = encArray[0] & 15;
 
 	// counter for byte we are in. used as index in encoded Array
-	int byteCount = 1;
+	size_t byteCount = 1;
 
 	// read current byte to decode
 	uint8_t curByte = encArray[byteCount];
@@ -46,7 +48,7 @@ struct decArrayTuple decompress(uint8_t* encArray, int storedBytes){
 	int rBits = 8;
 
 	// count decoded relative indices
-	int countRelIndices = 0;
+	size_t countRelIndices = 0;
 
 	// start loop here?
 	while(byteCount < storedBytes) {
@@ -56,7 +58,7 @@ struct decArrayTuple decompress(uint8_t* encArray, int storedBytes){
 		}
 
 		// decoded relative index
-		int decRelIndex = 0;
+		size_t decRelIndex = 0;
 		uint8_t tmp = 0;
 
 		// next sequence has to be joined to this sequence, at start "true" to enter loop 1 time
@@ -138,7 +140,7 @@ struct decArrayTuple decompress(uint8_t* encArray, int storedBytes){
 	}
 
 	// perfect array to return, so beautiful
-	size_t* perArray = (size_t* ) malloc(sizeof(size_t) * countRelIndices);
+	datatype* perArray = (datatype* ) malloc(sizeof(datatype) * countRelIndices);
 	if (perArray == NULL) {
 		printf("ERROR! memory allocation failed in decoding, perArray \n");
 	}

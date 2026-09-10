@@ -29,8 +29,8 @@ static PyObject* npy_decoding(PyObject* self, PyObject* args) {
     npy_intp dims = arrayTuple.len;
     // get memory allocated for pointer to return object. &array is random, to get size of a pointer
     PyObject* newNPYArray = (PyObject* ) malloc(sizeof(&array));
-    // create new np array object with encoded data
-    newNPYArray = PyArray_NewFromDescr(&PyArray_Type, PyArray_DescrFromType(NPY_UINTP), 1, &dims, NULL, arrayTuple.array, 0, NULL);
+    // create new np array object with decoded data
+    newNPYArray = PyArray_NewFromDescr(&PyArray_Type, PyArray_DescrFromType(NPY_UINT16), 1, &dims, NULL, arrayTuple.array, 0, NULL);
 
     Py_DECREF(array);
     Py_INCREF(newNPYArray);
@@ -45,14 +45,14 @@ static PyObject* npy_encoding(PyObject* self, PyObject* args) {
     }
 
     // Ensure array is contiguous and of correct type
-    array = (PyArrayObject*)PyArray_ContiguousFromAny((PyObject*)array, NPY_UINTP, 1, 1);
+    array = (PyArrayObject*)PyArray_ContiguousFromAny((PyObject*)array, NPY_UINT16, 1, 1);
     if (!array) {
         return NULL;
     }
 
     // get length and arraydata (elements) from input nparray
     npy_intp length = PyArray_SIZE(array);
-    size_t* data = (size_t*)PyArray_DATA(array);
+    uint16_t* data = (uint16_t*)PyArray_DATA(array);
 
     // encode/compress input array
     struct encArrayTuple arrayTuple = compress(bitlen, data, length);
