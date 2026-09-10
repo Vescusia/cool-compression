@@ -12,7 +12,7 @@ static size_t FILE_SIZE;
 
 // file read buffer
 static uint8_t buf[BUF_SIZE];
-static size_t buf_pos = 0;
+static size_t buf_data_start = 0;
 static size_t buf_data_end = 0;
 static size_t file_pos = 0;
 
@@ -34,7 +34,7 @@ static float* restrict targets = NULL;
  * @param chunks_per_batch Maximum chunks per batch. Returned batches can and will be smaller.
  * @param file_  File to be read from. Assumed to be seeked properly and not NULL.
  */
-int FR_init(const size_t chunk_size, const size_t chunks_per_batch, FILE* file_) {
+int fl_init(const size_t chunk_size, const size_t chunks_per_batch, FILE* file_) {
    CHUNK_SIZE = chunk_size;
    CHUNKS_PER_BATCH = chunks_per_batch;
 
@@ -47,7 +47,7 @@ int FR_init(const size_t chunk_size, const size_t chunks_per_batch, FILE* file_)
 
    // allocate input and target buffers
    inputs = calloc(INPUT_CHUNK_SIZE_BYTES, CHUNKS_PER_BATCH + 1);  // one more chunk for shifting inputs
-   targets = calloc(TARGET_CHUNK_SIZE, CHUNKS_PER_BATCH);
+   targets = calloc(TARGET_CHUNK_SIZE_BYTES, CHUNKS_PER_BATCH);
 
    if (inputs == NULL || targets == NULL) {
       errno = ENOMEM;
@@ -58,33 +58,33 @@ int FR_init(const size_t chunk_size, const size_t chunks_per_batch, FILE* file_)
 }
 
 /// The number of unread Bytes in buf
-static size_t overflow(void) {
-   return buf_data_end - buf_pos;
+static size_t bytes_left(void) {
+   return buf_data_end - buf_data_start;
 }
 
-FR_batch_t FR_get_batch(void) {
+fl_batch_t fl_get_batch(void) {
    // check if enough data for at least one chunk is in the buffer
    // this means it can potentially return nothing when previous last chunk is NULL (and we only get enough for one chunk)
-   if (overflow() < CHUNK_SIZE) {
+   if (bytes_left() < CHUNK_SIZE) {
       // copy remaining bytes to front
-      memmove(buf, buf + buf_pos, overflow());
-      buf_pos = 0;
+      const size_t overflow = bytes_left();
+      memmove(buf, buf + buf_data_start, overflow);
+      buf_data_start = 0;
 
       // fill buffer
-      const size_t read = fread(buf + overflow(), 1, BUF_SIZE - overflow(), file);
-      buf_data_end = overflow() + read;
+      const size_t read = fread(buf + overflow, 1, BUF_SIZE - overflow, file);
+      buf_data_end = overflow + read;
 
       // check for EOF
       if (read == 0) {
          // reset state
          fseek(file, 0, SEEK_SET);
          previous_last_input_chunk = NULL;
-         buf_pos = 0;
          buf_data_end = 0;
          file_pos = 0;
 
          // return EOF batch
-         return (FR_batch_t) {
+         return (fl_batch_t) {
             .num_chunks = 0,
             .inputs = NULL,
             .targets = NULL,
@@ -92,13 +92,13 @@ FR_batch_t FR_get_batch(void) {
       }
 
       // check that we have at least one chunk in the buffer
-      if (buf_data_end - buf_pos < CHUNK_SIZE) {
-         return FR_get_batch();
+      if (buf_data_end - buf_data_start < CHUNK_SIZE) {
+         return fl_get_batch();
       }
    }
 
    // calculate number of chunks for batch
-   size_t num_chunks = (overflow() - CHUNK_SIZE) / CHUNK_SIZE_SHIFT + 1;
+   size_t num_chunks = (bytes_left() - CHUNK_SIZE) / CHUNK_SIZE_SHIFT + 1;
    if (num_chunks > CHUNKS_PER_BATCH) num_chunks = CHUNKS_PER_BATCH;
 
    // copy previous last input chunk to the front of this batch
@@ -116,7 +116,7 @@ FR_batch_t FR_get_batch(void) {
 
       // copy the bytes into inputs
       for (size_t byte_i = 0; byte_i < CHUNK_SIZE; byte_i++) {
-         float transformed_byte = buf[buf_pos + chunk * CHUNK_SIZE_SHIFT + byte_i];
+         float transformed_byte = buf[buf_data_start + chunk * CHUNK_SIZE_SHIFT + byte_i];
          transformed_byte /= 255;
 
          // shift over by one chunk
@@ -130,7 +130,7 @@ FR_batch_t FR_get_batch(void) {
       // copy bytes
       for (size_t byte_i = 0; byte_i < CHUNK_SIZE_SHIFT; byte_i++) {
          // get last CHUNK_SIZE_SHIFT bytes of this chunk
-         const uint8_t raw_byte = buf[buf_pos + chunk * CHUNK_SIZE_SHIFT + CHUNK_SIZE - CHUNK_SIZE_SHIFT + byte_i];
+         const uint8_t raw_byte = buf[buf_data_start + chunk * CHUNK_SIZE_SHIFT + CHUNK_SIZE - CHUNK_SIZE_SHIFT + byte_i];
 
          // copy each bit
          // extract each bit from the byte
@@ -171,34 +171,34 @@ FR_batch_t FR_get_batch(void) {
    // but with the placeholder initial chunk, this is equivalent.
    previous_last_input_chunk = inputs + num_chunks * INPUT_CHUNK_SIZE;
    // move buffer forward
-   buf_pos += num_chunks * CHUNK_SIZE_SHIFT;
+   buf_data_start += num_chunks * CHUNK_SIZE_SHIFT;
 
    // ---------------------------------------------------------------------------------------|
    // |                                   debug prints                                       |
    // ---------------------------------------------------------------------------------------|
-   printf("Inputs: [");
-   for (size_t i = 0; i < num_valid_chunks * INPUT_CHUNK_SIZE; i += INPUT_CHUNK_SIZE) {
-      for (size_t j = 0; j < INPUT_CHUNK_SIZE; j++) {
-         printf("%.3f", inputs_out[i+j]);
-         printf(", ");
-      }
-      printf("| ");
-   }
-   printf("]\n");
+   // printf("Inputs: [");
+   // for (size_t i = 0; i < num_valid_chunks * INPUT_CHUNK_SIZE; i += INPUT_CHUNK_SIZE) {
+   //    for (size_t j = 0; j < INPUT_CHUNK_SIZE; j++) {
+   //       printf("%.3f", inputs_out[i+j]);
+   //       printf(", ");
+   //    }
+   //    printf("| ");
+   // }
+   // printf("]\n");
 
-   printf("Targets: [");
-   for (size_t i = 0; i < num_valid_chunks * TARGET_CHUNK_SIZE; i += TARGET_CHUNK_SIZE) {
-      for (size_t j = 0; j < TARGET_CHUNK_SIZE; j += 8) {
-         for (size_t k = 0; k < 8; k++) {
-            printf("%.0f", targets_out[i+j+k]);
-         }
-         printf(", ");
-      }
-      printf("| ");
-   }
-   printf("]\n");
+   // printf("Targets: [");
+   // for (size_t i = 0; i < num_valid_chunks * TARGET_CHUNK_SIZE; i += TARGET_CHUNK_SIZE) {
+   //    for (size_t j = 0; j < TARGET_CHUNK_SIZE; j += 8) {
+   //       for (size_t k = 0; k < 8; k++) {
+   //          printf("%.0f", targets_out[i+j+k]);
+   //       }
+   //       printf(", ");
+   //    }
+   //    printf("| ");
+   // }
+   // printf("]\n");
 
-   return (FR_batch_t) {
+   return (fl_batch_t) {
       .num_chunks = num_valid_chunks,
       .inputs = inputs_out,
       .targets = targets_out,
