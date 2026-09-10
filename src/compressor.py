@@ -19,7 +19,8 @@ from relative_distance import RelativeDistance
 @click.argument('model-path', type=click.Path(exists=True, dir_okay=False))
 @click.argument('file-path', type=click.Path(exists=True, dir_okay=False))
 @click.option('--vle-bits', type=click.INT, default=2)
-def compress(model_path: str, file_path: str, vle_bits: int):
+@click.option('--plot-file', flag_value='plot-file', default=False, help='Display all incorrect bits of file')
+def compress(model_path: str, file_path: str, vle_bits: int, plot_file: bool):
     # convert to Paths
     model_path = Path(model_path)
     file_path = Path(file_path)
@@ -65,7 +66,7 @@ def compress(model_path: str, file_path: str, vle_bits: int):
             inputs, targets = batch
 
             # update progress bar
-            bar.update(len(inputs) * chunk_size)
+            bar.update(len(targets))
 
             # predict next chunk
             predicted_chunks, state = model(inputs, state)
@@ -91,7 +92,7 @@ def compress(model_path: str, file_path: str, vle_bits: int):
     print(f"file size in B/b:            {file_size:,} / {rd.total_bits:,}")
 
     # plot relative indices
-    plot(np.concat(relative_indexes), vle_bits)
+    plot(np.concat(relative_indexes), vle_bits, display_bits=plot_file)
 
     # build and create compression directory
     compression_path = "compressed_data" / Path(model_path.name).with_suffix(model_path.suffix + '.ccp')
@@ -103,7 +104,7 @@ def compress(model_path: str, file_path: str, vle_bits: int):
         shutil.copy(model_path, Path(compression_path) / model_path.name)
 
 
-def plot(distances: np.ndarray, vle_bits_per_bit: int, display_bits: bool = False):
+def plot(distances: np.ndarray, vle_bits_per_bit: int, display_bits: bool = True):
     # plot the distribution of distances
     counts = np.bincount(distances.ravel())
     total_count = np.sum(counts)
@@ -135,10 +136,6 @@ def plot(distances: np.ndarray, vle_bits_per_bit: int, display_bits: bool = Fals
 
         plt.scatter(x_points, y_points, marker='s', color='tab:red', s=0.55)
         plt.show()
-
-    pairs = np.reshape(distances, (-1, 2))
-    pairs = np.sum(pairs, axis=1)
-    print(np.bincount(pairs))
 
 
 if __name__ == "__main__":

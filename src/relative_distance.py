@@ -39,7 +39,7 @@ class RelativeDistance:
 
         if len(different_bits) == 0:
             print("Perfect prediction")
-            return np.array([])
+            return np.array([0], dtype=np.uint8)
 
         # calculate distances between different bits
         last_dist = len(targets) - different_bits[-1]
