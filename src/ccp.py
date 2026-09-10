@@ -163,10 +163,12 @@ def evaluate(model: torch.nn.Module, loader: TorchFileLoader):
 
     # compute relative distance between wrong predicted bits
     rd = RelativeDistance()
+
+    # collect metrics
     mean_distances = []
     std_distances = []
-    total_encoded_bytes = 0
     all_distances = []
+    total_encoded_bytes = 0
 
     with torch.no_grad():
         # initialize model state
