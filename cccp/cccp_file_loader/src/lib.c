@@ -7,12 +7,14 @@
 #include "lib.h"
 
 
-FILE* file = NULL;
+static FILE* file = NULL;
+static size_t FILE_SIZE;
 
 // file read buffer
-uint8_t buf[BUF_SIZE];
-size_t buf_pos = 0;
-size_t buf_end = 0;
+static uint8_t buf[BUF_SIZE];
+static size_t buf_pos = 0;
+static size_t buf_data_end = 0;
+static size_t file_pos = 0;
 
 size_t CHUNK_SIZE;
 size_t CHUNKS_PER_BATCH;
@@ -21,7 +23,7 @@ size_t CHUNKS_PER_BATCH;
 // dangerous restrict
 // but should be fine, as there is no logical overlap because of the chunked data
 static float* restrict inputs = NULL;
-float* previous_last_input_chunk = NULL;  // <--- references inputs
+static float* previous_last_input_chunk = NULL;  // <--- references inputs
 
 // processed targets
 static float* restrict targets = NULL;
@@ -32,15 +34,20 @@ static float* restrict targets = NULL;
  * @param chunks_per_batch Maximum chunks per batch. Returned batches can and will be smaller.
  * @param file_  File to be read from. Assumed to be seeked properly and not NULL.
  */
-int init(const size_t chunk_size, const size_t chunks_per_batch, FILE* file_) {
+int FR_init(const size_t chunk_size, const size_t chunks_per_batch, FILE* file_) {
    CHUNK_SIZE = chunk_size;
    CHUNKS_PER_BATCH = chunks_per_batch;
 
    file = file_;
 
+   // get file size
+   fseek(file, 0, SEEK_END);
+   FILE_SIZE = ftell(file);
+   fseek(file, 0, SEEK_SET);
+
    // allocate input and target buffers
    inputs = calloc(INPUT_CHUNK_SIZE_BYTES, CHUNKS_PER_BATCH + 1);  // one more chunk for shifting inputs
-   targets = calloc(TARGET_CHUNK_SIZE_BYTES, CHUNKS_PER_BATCH);
+   targets = calloc(TARGET_CHUNK_SIZE, CHUNKS_PER_BATCH);
 
    if (inputs == NULL || targets == NULL) {
       errno = ENOMEM;
@@ -50,32 +57,34 @@ int init(const size_t chunk_size, const size_t chunks_per_batch, FILE* file_) {
    return 0;
 }
 
+/// The number of unread Bytes in buf
+static size_t overflow(void) {
+   return buf_data_end - buf_pos;
+}
 
-batch_t get_batch(void) {
+FR_batch_t FR_get_batch(void) {
    // check if enough data for at least one chunk is in the buffer
    // this means it can potentially return nothing when previous last chunk is NULL (and we only get enough for one chunk)
-   if (buf_end - buf_pos < CHUNK_SIZE) {
+   if (overflow() < CHUNK_SIZE) {
       // copy remaining bytes to front
-      const size_t overflow = buf_end - buf_pos;
-      for (size_t i = buf_pos; i < buf_end; i++) {
-         buf[i - buf_pos] = buf[i];
-      }
+      memmove(buf, buf + buf_pos, overflow());
       buf_pos = 0;
 
       // fill buffer
-      const size_t read = fread(buf + overflow, 1, BUF_SIZE - overflow, file);
-      buf_end = read + overflow;
+      const size_t read = fread(buf + overflow(), 1, BUF_SIZE - overflow(), file);
+      buf_data_end = overflow() + read;
 
-      // check for EOF or error
+      // check for EOF
       if (read == 0) {
          // reset state
-         previous_last_input_chunk = NULL;
          fseek(file, 0, SEEK_SET);
+         previous_last_input_chunk = NULL;
          buf_pos = 0;
-         buf_end = 0;
+         buf_data_end = 0;
+         file_pos = 0;
 
-         // return EOF/error batch
-         return (batch_t) {
+         // return EOF batch
+         return (FR_batch_t) {
             .num_chunks = 0,
             .inputs = NULL,
             .targets = NULL,
@@ -83,15 +92,14 @@ batch_t get_batch(void) {
       }
 
       // check that we have at least one chunk in the buffer
-      if (buf_end - buf_pos < CHUNK_SIZE) {
-         return get_batch();
+      if (buf_data_end - buf_pos < CHUNK_SIZE) {
+         return FR_get_batch();
       }
    }
 
    // calculate number of chunks for batch
-   size_t num_chunks = (buf_end - buf_pos) / CHUNK_SIZE;
+   size_t num_chunks = (overflow() - CHUNK_SIZE) / CHUNK_SIZE_SHIFT + 1;
    if (num_chunks > CHUNKS_PER_BATCH) num_chunks = CHUNKS_PER_BATCH;
-   const size_t num_batch_bytes = CHUNK_SIZE * num_chunks;
 
    // copy previous last input chunk to the front of this batch
    if (previous_last_input_chunk != NULL) {
@@ -99,26 +107,41 @@ batch_t get_batch(void) {
    }
 
    // chunks to inputs
-   for (size_t i = 0; i < num_batch_bytes; i++) {
-      float transformed_byte = buf[buf_pos + i];
-      transformed_byte /= 255;
+   for (size_t chunk = 0; chunk < num_chunks; chunk++) {
+      const size_t input_chunk_start = (chunk + 1) * INPUT_CHUNK_SIZE;  // skip first input chunk
 
-      // shift over by one chunk
-      // such that the previous last chunk can be copied in
-      inputs[i + INPUT_CHUNK_SIZE] = transformed_byte;
+      // add the position within the file
+      inputs[input_chunk_start] = (float) file_pos / (float) FILE_SIZE;
+      file_pos += CHUNK_SIZE_SHIFT;
+
+      // copy the bytes into inputs
+      for (size_t byte_i = 0; byte_i < CHUNK_SIZE; byte_i++) {
+         float transformed_byte = buf[buf_pos + chunk * CHUNK_SIZE_SHIFT + byte_i];
+         transformed_byte /= 255;
+
+         // shift over by one chunk
+         // such that the previous last chunk can be copied in
+         inputs[input_chunk_start + byte_i + 1] = transformed_byte;
+      }
    }
 
    // chunks to targets
-   for (size_t i = 0; i < num_batch_bytes; i++) {
-      const uint8_t raw_byte = buf[buf_pos + i];
+   for (size_t chunk = 0; chunk < num_chunks; chunk++) {
+      // copy bytes
+      for (size_t byte_i = 0; byte_i < CHUNK_SIZE_SHIFT; byte_i++) {
+         // get last CHUNK_SIZE_SHIFT bytes of this chunk
+         const uint8_t raw_byte = buf[buf_pos + chunk * CHUNK_SIZE_SHIFT + CHUNK_SIZE - CHUNK_SIZE_SHIFT + byte_i];
 
-      // extract each bit from the byte
-      uint8_t mask = 1 << 7;
-      for (uint8_t j = 0; j < 8; j++) {
-         const uint8_t bit = (raw_byte & mask) > 0;
-         targets[i*8 + j] = (float)bit;
+         // copy each bit
+         // extract each bit from the byte
+         uint8_t mask = 1 << 7;
+         for (uint8_t bit_j = 0; bit_j < 8; bit_j++) {
+            const uint8_t bit = (raw_byte & mask) > 0;
 
-         mask >>= 1;
+            targets[chunk * TARGET_CHUNK_SIZE + byte_i*8 + bit_j] = bit;
+
+            mask >>= 1;
+         }
       }
    }
 
@@ -148,34 +171,34 @@ batch_t get_batch(void) {
    // but with the placeholder initial chunk, this is equivalent.
    previous_last_input_chunk = inputs + num_chunks * INPUT_CHUNK_SIZE;
    // move buffer forward
-   buf_pos += num_chunks * CHUNK_SIZE;
+   buf_pos += num_chunks * CHUNK_SIZE_SHIFT;
 
    // ---------------------------------------------------------------------------------------|
    // |                                   debug prints                                       |
    // ---------------------------------------------------------------------------------------|
-   // printf("Inputs: [");
-   // for (size_t i = 0; i < num_valid_chunks * INPUT_CHUNK_SIZE; i += INPUT_CHUNK_SIZE) {
-   //    for (size_t j = 0; j < INPUT_CHUNK_SIZE; j++) {
-   //       printf("%.3f", inputs_out[i+j]);
-   //       printf(", ");
-   //    }
-   //    printf("| ");
-   // }
-   // printf("]\n");
-   //
-   // printf("Targets: [");
-   // for (size_t i = 0; i < num_valid_chunks * TARGET_CHUNK_SIZE; i += TARGET_CHUNK_SIZE) {
-   //    for (size_t j = 0; j < TARGET_CHUNK_SIZE; j += 8) {
-   //       for (size_t k = 0; k < 8; k++) {
-   //          printf("%.0f", targets_out[i+j+k]);
-   //       }
-   //       printf(", ");
-   //    }
-   //    printf("| ");
-   // }
-   // printf("]\n");
+   printf("Inputs: [");
+   for (size_t i = 0; i < num_valid_chunks * INPUT_CHUNK_SIZE; i += INPUT_CHUNK_SIZE) {
+      for (size_t j = 0; j < INPUT_CHUNK_SIZE; j++) {
+         printf("%.3f", inputs_out[i+j]);
+         printf(", ");
+      }
+      printf("| ");
+   }
+   printf("]\n");
 
-   return (batch_t) {
+   printf("Targets: [");
+   for (size_t i = 0; i < num_valid_chunks * TARGET_CHUNK_SIZE; i += TARGET_CHUNK_SIZE) {
+      for (size_t j = 0; j < TARGET_CHUNK_SIZE; j += 8) {
+         for (size_t k = 0; k < 8; k++) {
+            printf("%.0f", targets_out[i+j+k]);
+         }
+         printf(", ");
+      }
+      printf("| ");
+   }
+   printf("]\n");
+
+   return (FR_batch_t) {
       .num_chunks = num_valid_chunks,
       .inputs = inputs_out,
       .targets = targets_out,

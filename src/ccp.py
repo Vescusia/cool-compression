@@ -109,6 +109,8 @@ def main(file_path):
                 inputs, targets = batch
                 epoch_bar.update(len(inputs) * lib.CHUNK_SIZE)
 
+                print(inputs, inputs.shape)
+
                 # predict next chunk
                 predicted_chunks, state = model(inputs, state)
                 state = state.detach()

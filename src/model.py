@@ -48,7 +48,7 @@ class LongMaster(nn.Module):
         super().__init__()
 
         self.chunk_size = lib.CHUNK_SIZE
-        self.input_size = lib.CHUNK_SIZE  # input also contains indexes
+        self.input_size = lib.CHUNK_SIZE  # # input also contains indexes
         self.output_size = lib.CHUNK_SIZE * 8  # output is in Bits
 
         # LSTM sizes
@@ -133,3 +133,5 @@ class LongMaster(nn.Module):
 class Attention63(nn.Module):
     def __init__(self):
         super().__init__()
+
+

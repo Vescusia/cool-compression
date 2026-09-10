@@ -1,3 +1,8 @@
+# Philosophy and Guidelines
+We exclusively accept and produce hand-crafted artisanal code made in a rural village.
+We are first and foremost a C project and prioritise any C contributions completely.
+Python is a painful necessity in our artisanal life.
+
 # Install
 hehe - no
 
