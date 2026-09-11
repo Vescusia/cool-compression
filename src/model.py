@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 
 import torch
+from sklearn.inspection import permutation_importance
 from torch import nn
+import torch.nn.functional as F
 
 import lib
 
@@ -47,9 +49,8 @@ class LongMaster(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.chunk_size = lib.CHUNK_SIZE
-        self.input_size = lib.CHUNK_SIZE + 1  # input also contains indexes
-        self.output_size = 8  # output is in Bits, just predict next byte
+        self.input_size = lib.INPUT_CHUNK_SIZE
+        self.output_size = lib.TARGET_CHUNK_SIZE
 
         # LSTM sizes
         self.use_lstm = True
@@ -57,8 +58,8 @@ class LongMaster(nn.Module):
         self.num_layers = 1
 
         # ResNet sizes
-        self.res_width = 32
-        self.res_bottleneck = 3
+        self.res_width = 8
+        self.res_bottleneck = 1
         self.res_depth = 4
 
         if self.use_lstm:
@@ -130,8 +131,62 @@ class LongMaster(nn.Module):
                     nn.init.constant_(param, 0)
 
 
-class Attention63(nn.Module):
+class Attanton63(nn.Module):
     def __init__(self):
         super().__init__()
 
+        self.input_size = lib.INPUT_CHUNK_SIZE
+        self.target_size = lib.TARGET_CHUNK_SIZE
 
+        self.heads = 4
+
+        # embedding
+        self.embed_dim = self.heads * 2
+        self.embedding = nn.Linear(self.input_size, self.input_size * self.embed_dim, bias=True)
+
+        # MHA blocks
+        self.encoder = nn.MultiheadAttention(self.embed_dim, self.heads, batch_first=True)
+        self.decoder = nn.MultiheadAttention(self.embed_dim, self.heads, batch_first=True)
+
+        # FC layers
+        self.fc_encoder = nn.Sequential(
+            nn.Linear(self.embed_dim, self.embed_dim),
+            nn.LeakyReLU(),
+        )
+        self.fc_decoder = nn.Sequential(
+            nn.Linear(self.embed_dim, self.embed_dim),
+            nn.LeakyReLU(),
+        )
+        self.fc_to_output = nn.Linear(self.embed_dim * self.input_size, self.target_size)
+
+        # norm layers
+        self.encoder_norm = nn.LayerNorm(self.embed_dim)
+        self.decoder_norm = nn.LayerNorm(self.embed_dim)
+
+        self.sigmoid = nn.Sigmoid()
+
+    @staticmethod
+    def init_state():
+        return LSTMState.init(1)
+
+    def forward(self, x_in: torch.Tensor, state: LSTMState):
+        # embed
+        x_embed = self.embedding(x_in)
+        x_embed = x_embed.reshape(x_in.shape[0], self.input_size, self.embed_dim)
+
+        # encode
+        x = self.encoder(x_embed, x_embed, x_embed, need_weights=False)[0]  # returns single element tuple
+        x = self.encoder_norm(x + x_embed)  # add & norm
+        x_encoded = self.fc_encoder(x)
+
+        # decode
+        x = self.decoder(x_encoded, x_encoded, x_embed, need_weights=False)[0]  # same here
+        x = self.decoder_norm(x + x_encoded)  # add & norm
+        x = self.fc_decoder(x)
+
+        # to target
+        x = x.reshape(x_in.shape[0], -1)  # reshape to [batch, input_size * embed_dim]
+        x = self.fc_to_output(x)  # [batch, target_size]
+        x = self.sigmoid(x)
+
+        return x, state

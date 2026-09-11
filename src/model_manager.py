@@ -32,3 +32,17 @@ def load_model(path_to_model: Path):
     model = torch.load(path_to_model, weights_only=False)
     return model
 
+
+def print_model_parameters(model: torch.nn.Module):
+    def get_num_params(module: torch.nn.Module):
+        return sum(p.numel() for p in module.parameters() if p.requires_grad)
+
+    print(f"Model Parameters: {get_num_params(model):,} (", end=' ')
+
+    # iterate over all attributes of the model and print the respective number of parameters
+    modules = model._modules
+    for name, attr in modules.items():
+        if isinstance(attr, torch.nn.Module):
+            print(f"{name} {get_num_params(attr):,}", end=' | ')
+
+    print(')')
