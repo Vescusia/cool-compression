@@ -14,13 +14,13 @@ import cccp_vle
 import model_manager
 from model import LongMaster
 import lib
-from file_loader import TorchFileLoader
+from file_loader import TorchFileLoader, file_loader_old
 from relative_distance import RelativeDistance
 
 BYTES_PER_STEP = 2 ** 17
-EPOCHS = 1000
+EPOCHS = 100
 OPTIMIZER_SWAP_EPOCHS = EPOCHS // 2
-EVAL_EVERY_EPOCHS = 50
+EVAL_EVERY_EPOCHS = 5
 COMPILE = True
 
 
@@ -107,7 +107,7 @@ def main(file_path):
 
                 # unpack batch
                 inputs, targets = batch
-                epoch_bar.update(len(inputs) * lib.CHUNK_SIZE)
+                epoch_bar.update(len(targets))
 
                 # predict next chunk
                 predicted_chunks, state = model(inputs, state)
@@ -163,10 +163,12 @@ def evaluate(model: torch.nn.Module, loader: TorchFileLoader):
 
     # compute relative distance between wrong predicted bits
     rd = RelativeDistance()
+
+    # collect metrics
     mean_distances = []
     std_distances = []
-    total_encoded_bytes = 0
     all_distances = []
+    total_encoded_bytes = 0
 
     with torch.no_grad():
         # initialize model state

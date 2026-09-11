@@ -8,7 +8,7 @@
 #include "lib.h"
 
 
-PyObject* fl_init(PyObject* _self, PyObject* args) {
+PyObject* init(PyObject* _self, PyObject* args) {
     size_t chunk_size, chunks_per_batch;
     char* file_path;
 
@@ -24,7 +24,7 @@ PyObject* fl_init(PyObject* _self, PyObject* args) {
     }
 
     // initialize file loader
-    if (init(chunk_size, chunks_per_batch, file) != 0) {
+    if (fl_init(chunk_size, chunks_per_batch, file) != 0) {
         fclose(file);
         PyErr_SetString(PyExc_IOError, "Could not initialize file loader (OOM probably)");
         return NULL;
@@ -33,8 +33,8 @@ PyObject* fl_init(PyObject* _self, PyObject* args) {
     Py_RETURN_NONE;
 }
 
-PyObject* fl_get_batch(PyObject* _self, PyObject* _args) {
-    const batch_t batch = get_batch();
+PyObject* get_batch(PyObject* _self, PyObject* _args) {
+    const fl_batch_t batch = fl_get_batch();
 
     // check for EOF batch
     if (batch.num_chunks == 0) {
@@ -57,8 +57,8 @@ PyObject* fl_get_batch(PyObject* _self, PyObject* _args) {
 // | Python module declaration |
 // -----------------------------
 static PyMethodDef fl_methods[] = {
-    {"init",  fl_init, METH_VARARGS, "Initialize the file loader. \nArgs: (chunk_size, chunks_per_batch, path_to_file)"},
-    {"get_batch", fl_get_batch, METH_NOARGS, "Get a batch from the file loader. Args: None"},
+    {"init",  init, METH_VARARGS, "Initialize the file loader. \nArgs: (chunk_size, chunks_per_batch, path_to_file)"},
+    {"get_batch", get_batch, METH_NOARGS, "Get a batch from the file loader. Args: None"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 

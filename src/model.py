@@ -48,18 +48,18 @@ class LongMaster(nn.Module):
         super().__init__()
 
         self.chunk_size = lib.CHUNK_SIZE
-        self.input_size = lib.CHUNK_SIZE  # input also contains indexes
-        self.output_size = lib.CHUNK_SIZE * 8  # output is in Bits
+        self.input_size = lib.CHUNK_SIZE + 1  # input also contains indexes
+        self.output_size = 8  # output is in Bits, just predict next byte
 
         # LSTM sizes
-        self.use_lstm = False
-        self.hidden_size = 4
+        self.use_lstm = True
+        self.hidden_size = 16
         self.num_layers = 1
 
         # ResNet sizes
-        self.res_width = 16
+        self.res_width = 32
         self.res_bottleneck = 3
-        self.res_depth = 8
+        self.res_depth = 4
 
         if self.use_lstm:
             self.lstm = nn.LSTM(
@@ -133,3 +133,5 @@ class LongMaster(nn.Module):
 class Attention63(nn.Module):
     def __init__(self):
         super().__init__()
+
+

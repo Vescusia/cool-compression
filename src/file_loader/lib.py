@@ -16,7 +16,6 @@ class FileLoader:
 
         assert self.file_path.exists()
         assert self.file_path.is_file()
-        self.file_size = self.file_path.stat().st_size
 
         cccp_file_loader.init(self.chunk_size, self.chunks_per_batch, str(self.file_path.absolute()))
 
@@ -108,10 +107,10 @@ if __name__ == '__main__':
     # from file_loader_old import ParallelLoader
     import torch
 
-    _path = Path('data/tub_chem.bmp')
+    _path = Path('data/fish')
     _total_size = _path.stat().st_size
 
-    _loader = TorchFileLoader(_path, 8, 2 ** 20, device='cpu')
+    _loader = TorchFileLoader(_path, 16, 2 ** 20, device='cpu')
     # _loader_old = ParallelLoader(_path, 8, 2 ** 20, num_processors=7)
 
     _start = time()
