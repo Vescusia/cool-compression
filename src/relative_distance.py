@@ -17,7 +17,7 @@ class RelativeDistance:
     def total_correct_bits(self) -> int:
         return self.total_bits - self.total_incorrect_bits
 
-    def to_relative(self, predictions: torch.Tensor, targets: torch.Tensor) -> np.ndarray:
+    def to_relative(self, predictions: torch.Tensor, targets: torch.Tensor) -> np.ndarray | None:
         """
         Compute the relative distance between the wrongly predicted bits.
         Call ``.reset()`` to reset the relative distance interchunk context.
@@ -37,9 +37,11 @@ class RelativeDistance:
         different_bits = np.argwhere(different_bits).ravel()
         self.total_incorrect_bits += len(different_bits)
 
+        # handle perfect prediction
         if len(different_bits) == 0:
             print("Perfect prediction")
-            return np.array([0], dtype=np.uint8)
+            self.previous_last_dist += len(targets)
+            return None
 
         # calculate distances between different bits
         last_dist = len(targets) - different_bits[-1]

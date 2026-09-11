@@ -12,12 +12,12 @@ from tqdm import tqdm
 
 import cccp_vle
 import model_manager
-from model import LongMaster
+from model import LongMaster, Attanton63
 import lib
-from file_loader import TorchFileLoader, file_loader_old
+from file_loader import TorchFileLoader
 from relative_distance import RelativeDistance
 
-BYTES_PER_STEP = 2 ** 17
+BYTES_PER_STEP = 2 ** 18
 EPOCHS = 100
 OPTIMIZER_SWAP_EPOCHS = EPOCHS // 2
 EVAL_EVERY_EPOCHS = 5
@@ -48,24 +48,20 @@ if __name__ == '__main__':
 @click.argument('file-path', type=click.Path(exists=True, dir_okay=False))
 def main(file_path):
     # create model
-    model = LongMaster()
+    model = Attanton63()
+    # model = LongMaster()
     if COMPILE:
         model.compile()
 
     # initialize model weights
-    model.apply(model.init_weights)
+    # model.apply(model.init_weights)
     model = model.to(lib.DEVICE)
 
     # print number of parameters
-    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    num_lstm_params = sum(p.numel() for p in model.lstm.parameters() if p.requires_grad)
-    num_hidden_to_res_params = sum(p.numel() for p in model.hidden_to_res.parameters() if p.requires_grad)
-    num_res_net_params = sum(p.numel() for p in model.res_net.parameters() if p.requires_grad)
-    num_last_fc_params = sum(p.numel() for p in model.fc_to_output.parameters() if p.requires_grad)
-    LOGGER(f"Model parameters: {num_params:,} ({num_lstm_params:,} LSTM, {num_hidden_to_res_params:,} HiddenToRes, {num_res_net_params:,} ResNet, {num_last_fc_params:,} Last FC)")
+    model_manager.print_model_parameters(model)
 
     # define fast/first optimizer
-    optim = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=0)
+    optim = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=0)
     # optim = torch.optim.LBFGS(model.parameters(), lr=1., max_iter=30)
 
     # define loss function
