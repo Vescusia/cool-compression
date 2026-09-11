@@ -7,6 +7,7 @@ import tqdm
 import matplotlib.pyplot as plt
 import click
 
+import lib
 from model_manager import load_model
 from file_loader import TorchFileLoader
 import cccp_vle
@@ -28,7 +29,7 @@ def compress(model_path: str, file_path: str, vle_bits: int, plot_file: bool):
     # load model
     if model_path.suffix == ".pt":
         model = load_model(Path(model_path))
-        model = model.to('cpu')
+        model = model.to(lib.DEVICE)
     else:
         exit("fehler beim laden des models, weil vielleicht der pfad falsch ist!?")
 
@@ -55,6 +56,9 @@ def compress(model_path: str, file_path: str, vle_bits: int, plot_file: bool):
     # store encoded distances
     encoded_distances = []
 
+    # store first chunk to save on disk
+    first_chunk = None
+
     with torch.no_grad():
         # initialize model state
         state = model.init_state()
@@ -64,6 +68,10 @@ def compress(model_path: str, file_path: str, vle_bits: int, plot_file: bool):
 
         while batch := loader.get_batch():
             inputs, targets = batch
+
+            # get first chunk
+            if first_chunk is None:
+                first_chunk = inputs[0].cpu().numpy().copy()
 
             # update progress bar
             bar.update(len(targets))
@@ -95,13 +103,19 @@ def compress(model_path: str, file_path: str, vle_bits: int, plot_file: bool):
     plot(np.concat(relative_indexes), vle_bits, display_bits=plot_file)
 
     # build and create compression directory
-    compression_path = "compressed_data" / Path(model_path.name).with_suffix(model_path.suffix + '.ccp')
+    compression_path = "compressed_data" / Path(model_path.name).with_suffix(model_path.suffix + '.ccp') / 'encoded'
     compression_path.mkdir(parents=True, exist_ok=True)
+
+    # save first chunk
+    #print(first_chunk)
+    np.save(compression_path.parent / "first_chunk.npy", first_chunk)
+
+    # copy model to compressed dir
+    shutil.copy(model_path, Path(compression_path.parent) / model_path.name)
 
     # save compressed data
     for i, encoded_array in enumerate(encoded_distances):
         np.save(compression_path / f'{i:03}.npy', encoded_array)
-        shutil.copy(model_path, Path(compression_path) / model_path.name)
 
 
 def plot(distances: np.ndarray, vle_bits_per_bit: int, display_bits: bool = True):

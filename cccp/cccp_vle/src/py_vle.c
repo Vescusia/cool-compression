@@ -30,7 +30,7 @@ static PyObject* npy_decoding(PyObject* self, PyObject* args) {
     // get memory allocated for pointer to return object. &array is random, to get size of a pointer
     PyObject* newNPYArray = (PyObject* ) malloc(sizeof(&array));
     // create new np array object with decoded data
-    newNPYArray = PyArray_NewFromDescr(&PyArray_Type, PyArray_DescrFromType(NPY_UINT16), 1, &dims, NULL, arrayTuple.array, 0, NULL);
+    newNPYArray = PyArray_SimpleNewFromData(1, &dims, NPY_UINT16, arrayTuple.array);
 
     Py_DECREF(array);
     Py_INCREF(newNPYArray);

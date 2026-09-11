@@ -5,6 +5,44 @@ import numpy as np
 
 # import c extension
 import cccp_file_loader
+import cccp_vle
+
+class vleFileLoader:
+
+    def __init__(self, dir_path: Path | str):
+        # path to dir with encoded batches
+        self.dir_path = dir_path if isinstance(dir_path, Path) else Path(dir_path)
+        # index of current batch file
+        self.count_batch = 0
+        # prepare first batch
+        self._load_next_batch()
+
+    def _load_next_batch(self) -> bool:
+        # make path to current batch file
+        file_path = (self.dir_path / f"{self.count_batch:03}")
+        self.count_batch += 1
+        # index of current bit to return in current batch
+        self.bit_counter = 0
+
+        # get next relative indices for batch
+        if file_path.exists():
+            loaded_array = np.load(file_path, allow_pickle=True)
+            self.dec_array = cccp_vle.npy_decoding(loaded_array) + 1
+            return True
+        else:
+            # HIER AUS Z.B. FIRST_CHUNK.NPY DIE FILE SIZE EINLESEN UND RÜKCGEBEN UM ENDE KORREKT ZU BEHANDELN
+            self.dec_array = None
+            return False
+
+    def get_dist(self):
+        return
+        #if self.bit_counter < self.dec_array.shape[0]:
+        #    return self.dec_array[self.bit_counter++]
+        #elif self._load_next_batch():
+        #    return self.dec_array[self.bit_counter++]
+        #else:
+        #    return None
+
 
 
 class FileLoader:
