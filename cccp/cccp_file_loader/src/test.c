@@ -7,13 +7,13 @@
 
 
 int main(void) {
-    FILE* sugoma = fopen("../fish", "rb");
+    FILE* sugoma = fopen("../blank-white.jpg", "rb");
     if (!sugoma) {
         printf("Error opening file\n");
         return 0;
     }
 
-    const size_t chunk_size = 5;
+    const size_t chunk_size = 4;
     const size_t chunks_per_batch = 2;
 
     // get file size
@@ -33,7 +33,7 @@ int main(void) {
 
     const clock_t start = clock();
 
-    for (int i = 0; i < 1000000000; i++) {
+    while (1) {
         const fl_batch_t batch = fl_get_batch();
 
         // make sure that targets are the correct file bits
