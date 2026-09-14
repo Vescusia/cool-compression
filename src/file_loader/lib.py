@@ -10,6 +10,8 @@ import cccp_vle
 class vleFileLoader:
 
     def __init__(self, dir_path: Path | str):
+        # declare attribute
+        self.dec_array = None
         # path to dir with encoded batches
         self.dir_path = dir_path if isinstance(dir_path, Path) else Path(dir_path)
         # index of current batch file
@@ -34,14 +36,16 @@ class vleFileLoader:
             self.dec_array = None
             return False
 
-    def get_dist(self):
-        return
-        #if self.bit_counter < self.dec_array.shape[0]:
-        #    return self.dec_array[self.bit_counter++]
-        #elif self._load_next_batch():
-        #    return self.dec_array[self.bit_counter++]
-        #else:
-        #    return None
+    def get_dist(self) -> int | None:
+        if self.dec_array is None:
+            return None
+        elif self.bit_counter < self.dec_array.shape[0]:
+            num =  self.dec_array[self.bit_counter]
+            self.bit_counter += 1
+            return num
+        else:
+            self._load_next_batch()
+            self.get_dist()
 
 
 
