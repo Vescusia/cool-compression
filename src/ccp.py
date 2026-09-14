@@ -17,11 +17,12 @@ import lib
 from file_loader import TorchFileLoader
 from relative_distance import RelativeDistance
 
-BYTES_PER_STEP = 2 ** 18
+BYTES_PER_STEP = 2 ** 15
 EPOCHS = 100
 OPTIMIZER_SWAP_EPOCHS = EPOCHS // 2
 EVAL_EVERY_EPOCHS = 5
 COMPILE = True
+torch.set_float32_matmul_precision('high')
 
 
 class FilePrinter:
@@ -61,8 +62,7 @@ def main(file_path):
     model_manager.print_model_parameters(model)
 
     # define fast/first optimizer
-    optim = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=0)
-    # optim = torch.optim.LBFGS(model.parameters(), lr=1., max_iter=30)
+    optim = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=0.)
 
     # define loss function
     criterion = torch.nn.BCELoss()
@@ -192,13 +192,14 @@ def evaluate(model: torch.nn.Module, loader: TorchFileLoader):
 
             # calculate relative wrong bit distances
             distances = rd.to_relative(predicted_chunks, targets)
-            all_distances.append(distances)
-            mean_distances.append(np.mean(distances))
-            std_distances.append(np.std(distances))
+            if distances is not None:
+                all_distances.append(distances)
+                mean_distances.append(np.mean(distances))
+                std_distances.append(np.std(distances))
 
-            # encode to variable length encoded bits
-            enc_array = cccp_vle.npy_encoding(distances, 2)
-            total_encoded_bytes += len(enc_array)
+                # encode to variable length encoded bits
+                enc_array = cccp_vle.npy_encoding(distances, 2)
+                total_encoded_bytes += len(enc_array)
 
         pred_std /= num_batches
 

@@ -58,9 +58,96 @@ int fl_init(const size_t chunk_size, const size_t chunks_per_batch, FILE* file_)
 }
 
 /// The number of unread Bytes in buf
-static size_t bytes_left(void) {
+size_t bytes_left(void) {
    return buf_data_end - buf_data_start;
 }
+
+
+void __attribute__ ((noinline)) write_input_bytes(float* dest, const uint8_t* src, const size_t num_bytes) {
+   // copy the bytes into inputs
+   for (size_t byte_i = 0; byte_i < num_bytes; byte_i++) {
+      float transformed_byte = src[byte_i];
+      transformed_byte /= 255;
+
+      // shift over by one chunk
+      // such that the previous last chunk can be copied in
+      dest[byte_i] = transformed_byte;
+   }
+}
+
+/**
+ * Converts the Bytes from num_chunk chunks to input byte values and writes them into inputs.
+ * The first chunk in inputs is always left free for the previous last chunk.
+ * The
+ */
+void __attribute__ ((noinline)) chunks_to_inputs(const size_t num_chunks) {
+   for (size_t chunk = 0; chunk < num_chunks; chunk++) {
+      float* input_chunk = inputs + (chunk + 1) * INPUT_CHUNK_SIZE;  // skip first input chunk
+      const uint8_t* data_chunk = buf + buf_data_start + chunk * CHUNK_SIZE_SHIFT;
+
+      // add the position within the file
+      input_chunk[0] = (float) file_pos / (float) FILE_SIZE;
+      file_pos += CHUNK_SIZE_SHIFT;
+
+      // there is information overlap between the previous and current chunk
+      if (chunk > 0) {
+         const float* previous_chunk_start = inputs + chunk * INPUT_CHUNK_SIZE;  // skip first input chunk
+
+         // copy the last CHUNK_SIZE - CHUNK_SIZE_SHIFT (f32) Bytes to the current chunk,
+         // as it is just shifted CHUNK_SIZE_SHIFT Bytes to right.
+         // offset both chunks starts by one because of the file index
+         memcpy(
+            input_chunk + 1,
+            previous_chunk_start + 1 + CHUNK_SIZE_SHIFT,
+            (CHUNK_SIZE - CHUNK_SIZE_SHIFT) * sizeof(float)
+            );
+
+         // write only the new CHUNK_SIZE_SHIFT Bytes
+         write_input_bytes(
+            input_chunk + INPUT_CHUNK_SIZE - CHUNK_SIZE_SHIFT,
+            data_chunk + CHUNK_SIZE - CHUNK_SIZE_SHIFT,
+            CHUNK_SIZE_SHIFT
+            );
+      }
+      else {
+         // write whole chunk
+         write_input_bytes(
+            input_chunk + 1,
+            data_chunk,
+            CHUNK_SIZE
+            );
+      }
+   }
+}
+
+
+/**
+ * Converts the last CHUNK_SIZE_SHIFT Bytes from num_chunk chunks to target bit values and writes them into targets.
+ */
+void __attribute__ ((noinline)) chunks_to_targets(const size_t num_chunks) {
+   for (size_t chunk = 0; chunk < num_chunks; chunk++) {
+      float* target_chunk = targets + chunk * TARGET_CHUNK_SIZE;
+      const uint8_t* data_chunk = buf + buf_data_start + chunk * CHUNK_SIZE_SHIFT;
+
+      // copy bytes
+      for (size_t byte_i = 0; byte_i < CHUNK_SIZE_SHIFT; byte_i++) {
+         // get last CHUNK_SIZE_SHIFT bytes of this chunk
+         const uint8_t raw_byte = data_chunk[CHUNK_SIZE - CHUNK_SIZE_SHIFT + byte_i];
+
+         // copy each bit
+         // extract each bit from the byte
+         uint8_t mask = 1 << 7;
+         for (uint8_t bit_j = 0; bit_j < 8; bit_j++) {
+            const uint8_t bit = (raw_byte & mask) > 0;
+
+            target_chunk[byte_i*8 + bit_j] = bit;
+
+            mask >>= 1;
+         }
+      }
+   }
+}
+
 
 fl_batch_t fl_get_batch(void) {
    // check if enough data for at least one chunk is in the buffer
@@ -92,7 +179,7 @@ fl_batch_t fl_get_batch(void) {
       }
 
       // check that we have at least one chunk in the buffer
-      if (buf_data_end - buf_data_start < CHUNK_SIZE) {
+      if (bytes_left() < CHUNK_SIZE) {
          return fl_get_batch();
       }
    }
@@ -106,45 +193,11 @@ fl_batch_t fl_get_batch(void) {
       memmove(inputs, previous_last_input_chunk, INPUT_CHUNK_SIZE_BYTES);
    }
 
-   // chunks to inputs
-   for (size_t chunk = 0; chunk < num_chunks; chunk++) {
-      const size_t input_chunk_start = (chunk + 1) * INPUT_CHUNK_SIZE;  // skip first input chunk
+   // write chunks to input/target buffers
+   chunks_to_inputs(num_chunks);
+   chunks_to_targets(num_chunks);
 
-      // add the position within the file
-      inputs[input_chunk_start] = (float) file_pos / (float) FILE_SIZE;
-      file_pos += CHUNK_SIZE_SHIFT;
-
-      // copy the bytes into inputs
-      for (size_t byte_i = 0; byte_i < CHUNK_SIZE; byte_i++) {
-         float transformed_byte = buf[buf_data_start + chunk * CHUNK_SIZE_SHIFT + byte_i];
-         transformed_byte /= 255;
-
-         // shift over by one chunk
-         // such that the previous last chunk can be copied in
-         inputs[input_chunk_start + byte_i + 1] = transformed_byte;
-      }
-   }
-
-   // chunks to targets
-   for (size_t chunk = 0; chunk < num_chunks; chunk++) {
-      // copy bytes
-      for (size_t byte_i = 0; byte_i < CHUNK_SIZE_SHIFT; byte_i++) {
-         // get last CHUNK_SIZE_SHIFT bytes of this chunk
-         const uint8_t raw_byte = buf[buf_data_start + chunk * CHUNK_SIZE_SHIFT + CHUNK_SIZE - CHUNK_SIZE_SHIFT + byte_i];
-
-         // copy each bit
-         // extract each bit from the byte
-         uint8_t mask = 1 << 7;
-         for (uint8_t bit_j = 0; bit_j < 8; bit_j++) {
-            const uint8_t bit = (raw_byte & mask) > 0;
-
-            targets[chunk * TARGET_CHUNK_SIZE + byte_i*8 + bit_j] = bit;
-
-            mask >>= 1;
-         }
-      }
-   }
-
+   // build output
    float* inputs_out;
    float* targets_out;
    size_t num_valid_chunks;
@@ -185,7 +238,7 @@ fl_batch_t fl_get_batch(void) {
    //    printf("| ");
    // }
    // printf("]\n");
-
+   //
    // printf("Targets: [");
    // for (size_t i = 0; i < num_valid_chunks * TARGET_CHUNK_SIZE; i += TARGET_CHUNK_SIZE) {
    //    for (size_t j = 0; j < TARGET_CHUNK_SIZE; j += 8) {

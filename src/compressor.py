@@ -48,7 +48,7 @@ def compress(model_path: str, file_path: str, vle_bits: int, plot_file: bool):
     relative_indexes = []
 
     # initialize the file loader, set batch_size_bytes to a nice number :) (not important) BROOTTTTT
-    loader = TorchFileLoader(file_path, chunk_size, batch_size_bytes)
+    loader = TorchFileLoader(file_path, chunk_size, batch_size_bytes, device=lib.DEVICE)
 
     # calculate relative distances
     rd = RelativeDistance()

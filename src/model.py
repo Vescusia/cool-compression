@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 from sklearn.inspection import permutation_importance
@@ -17,7 +18,7 @@ class LSTMState:
     def init(main_hidden_size: int) -> LSTMState:
         main_hx = torch.zeros(1, main_hidden_size).to(lib.DEVICE)
         main_cx = torch.zeros(1, main_hidden_size).to(lib.DEVICE)
-            
+
         return LSTMState(main_hx, main_cx)
 
     def detach(self) -> LSTMState:
@@ -131,37 +132,108 @@ class LongMaster(nn.Module):
                     nn.init.constant_(param, 0)
 
 
+class AttantonBlock(nn.Module):
+    def __init__(self, embed_dim: int, heads: int, batch_first: bool = True, initial_alpha: float = 0.001):
+        """
+        ResNet-like Block with a Multi-Head-Attention core.
+        Residually adds the MHA output to the inputs and then has an FFN at the end.
+        :param initial_alpha: The initial residual factor of the addition. For Deep ResNets, keep small so it remains stable.
+        """
+        super().__init__()
+
+        self.mha = nn.MultiheadAttention(embed_dim, heads, batch_first=batch_first)
+        self.alpha = nn.Parameter(torch.Tensor([initial_alpha]))  # weight of the attention output
+        self.norm = nn.LayerNorm(embed_dim)
+        self.ffn = nn.Linear(embed_dim, embed_dim)
+        self.relu = nn.LeakyReLU()
+
+    def forward(self, res: torch.Tensor, q: torch.Tensor | None = None, k: torch.Tensor | None = None, v: torch.Tensor | None = None) -> torch.Tensor:
+        """
+        If ``q, k, v`` are ``None``, ``res`` is used for self-attention and main residual part.
+        :param res: Residually gets passed through after adding the output of MHA(Q, K, V)
+        :type v: torch.Tensor
+        :type k: torch.Tensor
+        :type q: torch.Tensor
+        """
+        if q is None or k is None or v is None:
+            assert q is None and k is None and v is None, "If any of the MHA arguments is None, all have to be none as it then is self-attention."
+            q, k, v = res, res, res  # set to self-attention
+
+        # compute Attention
+        x_att = self.mha(q, k, v, need_weights=False)[0]
+
+        # add & norm
+        res = res + x_att * self.alpha
+        res = self.norm(res)
+
+        # FFN
+        res = self.ffn(res)
+        res = self.relu(res)
+        return res
+
+
+"""
+Attanton Architecture:
+
+     [SoftMax]
+         |         __
+      [Linear]      |
+         |          | stepwise transition to output dimension
+      [Linear]     _|
+         |         
+     [Decoder]    (self MHA)
+      |--|--|
+         |          __
+    [MHA Block]      |
+      |--|  |---|    |
+         |      |    | repeated multiple times
+    [MHA Block] |    |
+      |--|  |----   _|
+         |      |
+     [Encoder]  | (self MHA)
+      |--|--|   |
+         |      |
+    [Embedding]-| 
+         |
+      [input]
+"""
+
+
 class Attanton63(nn.Module):
     def __init__(self):
         super().__init__()
 
         self.input_size = lib.INPUT_CHUNK_SIZE
+        self.chunk_size = lib.CHUNK_SIZE
         self.target_size = lib.TARGET_CHUNK_SIZE
 
-        self.heads = 4
+        self.heads = 64
 
         # embedding
         self.embed_dim = self.heads * 2
-        self.embedding = nn.Linear(self.input_size, self.input_size * self.embed_dim, bias=True)
+        self.embedding = nn.Sequential(
+            nn.Linear(1, self.embed_dim),
+            nn.LeakyReLU()
+        )
+
+        self.resnet = nn.Sequential(
+            *[ResBlock(self.embed_dim, 4) for _ in range(4)]
+        )
+
+        # MHA ResNet
+        # self.mha_resnet = nn.ModuleList([AttantonBlock(self.embed_dim, self.heads, batch_first=True) for _ in range(1)])
 
         # MHA blocks
-        self.encoder = nn.MultiheadAttention(self.embed_dim, self.heads, batch_first=True)
-        self.decoder = nn.MultiheadAttention(self.embed_dim, self.heads, batch_first=True)
+        # self.encoder = AttantonBlock(self.embed_dim, self.heads, initial_alpha=1., batch_first=True)
+        # self.decoder = AttantonBlock(self.embed_dim, self.heads, initial_alpha=1., batch_first=True)
 
-        # FC layers
-        self.fc_encoder = nn.Sequential(
-            nn.Linear(self.embed_dim, self.embed_dim),
+        # FC to output
+        self.fc_to_output = nn.Sequential(
+            nn.Linear(self.embed_dim, 1),  # scale down back to single bytes
             nn.LeakyReLU(),
+            nn.Flatten(start_dim=1),
+            nn.Linear(self.input_size, self.target_size),  # all bytes down to 8 bits
         )
-        self.fc_decoder = nn.Sequential(
-            nn.Linear(self.embed_dim, self.embed_dim),
-            nn.LeakyReLU(),
-        )
-        self.fc_to_output = nn.Linear(self.embed_dim * self.input_size, self.target_size)
-
-        # norm layers
-        self.encoder_norm = nn.LayerNorm(self.embed_dim)
-        self.decoder_norm = nn.LayerNorm(self.embed_dim)
 
         self.sigmoid = nn.Sigmoid()
 
@@ -169,24 +241,38 @@ class Attanton63(nn.Module):
     def init_state():
         return LSTMState.init(1)
 
-    def forward(self, x_in: torch.Tensor, state: LSTMState):
+    def forward(self, x_in: torch.Tensor, state: LSTMState) -> tuple[torch.Tensor, LSTMState]:
         # embed
-        x_embed = self.embedding(x_in)
-        x_embed = x_embed.reshape(x_in.shape[0], self.input_size, self.embed_dim)
+        x = torch.unsqueeze(x_in, 2)
+        x = self.embedding(x)  # embed
 
         # encode
-        x = self.encoder(x_embed, x_embed, x_embed, need_weights=False)[0]  # returns single element tuple
-        x = self.encoder_norm(x + x_embed)  # add & norm
-        x_encoded = self.fc_encoder(x)
+        # x = self.encoder(x)
+
+        # MHA ResNet
+        # for block in self.mha_resnet:
+        #     x = block(res=x, q=x, k=x, v=x_embed)
 
         # decode
-        x = self.decoder(x_encoded, x_encoded, x_embed, need_weights=False)[0]  # same here
-        x = self.decoder_norm(x + x_encoded)  # add & norm
-        x = self.fc_decoder(x)
+        # x = self.decoder(res=x, q=x, k=x, v=x_embed)
+        x = self.resnet(x)
 
         # to target
-        x = x.reshape(x_in.shape[0], -1)  # reshape to [batch, input_size * embed_dim]
-        x = self.fc_to_output(x)  # [batch, target_size]
+        x = self.fc_to_output(x)
         x = self.sigmoid(x)
 
         return x, state
+
+    @staticmethod
+    def init_weights(module: nn.Module):
+        # initialize ResBlocks such that they start out as identifiers
+        if isinstance(module, ResBlock):
+            nn.init.constant_(module.linear[-1].weight, 0)
+            nn.init.constant_(module.linear[-1].bias, 0)
+
+        elif isinstance(module, nn.Linear):
+            nn.init.kaiming_uniform_(module.weight)
+            if module.bias is not None:
+                nn.init.constant_(module.bias, 0.01)
+        else:
+            return
