@@ -21,8 +21,7 @@ BYTES_PER_STEP = 2 ** 15
 EPOCHS = 100
 OPTIMIZER_SWAP_EPOCHS = EPOCHS // 2
 EVAL_EVERY_EPOCHS = 5
-COMPILE = True
-torch.set_float32_matmul_precision('high')
+COMPILE = False
 
 
 class FilePrinter:

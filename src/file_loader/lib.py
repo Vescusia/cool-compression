@@ -21,7 +21,7 @@ class vleFileLoader:
 
     def _load_next_batch(self) -> bool:
         # make path to current batch file
-        file_path = (self.dir_path / f"{self.count_batch:03}")
+        file_path = (self.dir_path / f"{self.count_batch:03}.npy")
         self.count_batch += 1
         # index of current bit to return in current batch
         self.bit_counter = 0
@@ -39,13 +39,13 @@ class vleFileLoader:
     def get_dist(self) -> int | None:
         if self.dec_array is None:
             return None
-        elif self.bit_counter < self.dec_array.shape[0]:
+        elif self.bit_counter < len(self.dec_array):
             num =  self.dec_array[self.bit_counter]
             self.bit_counter += 1
             return num
         else:
             self._load_next_batch()
-            self.get_dist()
+            return self.get_dist()
 
 
 

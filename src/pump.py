@@ -29,15 +29,18 @@ def inflate(compressed_dir_path: str, decompressed_file_path: str):
     first_chunk = np.load(compressed_dir_path / 'first_chunk.npy')
     #print(first_chunk, first_chunk.shape)
 
-    # GET FILE SIZE!!!
-    file_size = None
+    # GET FILE SIZE!!! in Bytes
+    file_size = 209130
 
     # load model
     model = load_model(compressed_dir_path / compressed_dir_path.with_suffix('').name)
     model = model.to(lib.DEVICE)
 
-    with open(decompressed_file_path / Path(compressed_dir_path.name).with_suffix('').with_suffix(''), 'wb') as f:
-
+    with open(decompressed_file_path / Path(compressed_dir_path.name).with_suffix('').with_suffix('').with_suffix(''), 'wb') as f:
+        # write first chunk to file
+        f.write((first_chunk[1:] * 255).astype(np.uint8).tobytes())
+        # count predicted bytes
+        count_bytes = len(first_chunk) - 1
 
         with torch.no_grad():
             # initialize model state
@@ -46,8 +49,6 @@ def inflate(compressed_dir_path: str, decompressed_file_path: str):
             # get first input chunk
             inputs = torch.unsqueeze(torch.from_numpy(first_chunk), 0)
 
-            # count predicted bytes
-            count_bytes = 0
 
             # initialize file loader to get relativ distances between wrong bits
             vle_fl = vleFileLoader(compressed_dir_path / "encoded")
@@ -55,49 +56,49 @@ def inflate(compressed_dir_path: str, decompressed_file_path: str):
             # get first predicted chunk (one byte)
             predicted_bits, state = model(inputs, state)
             predicted_bits = torch.round(predicted_bits[0])
-            pred_byte = np.packbits(predicted_bits.cpu().numpy().astype(np.uint8))
+            pred_byte = np.packbits(predicted_bits.cpu().numpy().astype(np.uint8)).astype(np.uint8)[0]
 
             # behaves like the index of a false bit in the current byte. is used to flip the bit
-            bit_offset = 0
+            bit_offset = vle_fl.get_dist() - 1
 
             # loop over all relative distances
-            while rel_index := vle_fl.get_dist():
-                # if new relative distance changes current byte
-                if bit_offset + rel_index < 8:
-                    # flip wrong bit in predicted byte
-                    bit_offset += rel_index
-                    pred_byte ^= 1 << (7 - bit_offset)
+            while vle_fl.dec_array is not None:
 
-                # if new relative distance is important for next byte
-                else:
-                    # save correct byte to file
-
-                    bit_offset -= 8
-
-                    inputs = np.concat([count_bytes / file_size], inputs[2:], [pred_byte / 255])
-                    # get predicted chunk (one byte)
-                    predicted_bits, state = model(inputs, state)
-                    predicted_bits = torch.round(predicted_bits[0])
-
-                    pred_byte = np.packbits(predicted_bits.cpu().numpy().astype(np.uint8))
-
-                    count_bytes += 1
-
+                while bit_offset < 8:
                     # flip wrong bit
-                    pred_byte ^= 1 << (7 - bit_offset)
+                    pred_byte ^= 1 << (7 - bit_offset.astype(np.uint8))
 
-            # save last byte with corrected bit
-            #save(pred_byte)
+                    new_dist = vle_fl.get_dist()
+                    if new_dist is not None:
+                        bit_offset += new_dist
+                    else:
+                        break
 
-            # predict last correct bytes with model
-            while file_size - count_bytes > 0:
-                predicted_bits, state = model(inputs, state)
-                predicted_bits = torch.round(predicted_bits[0])
-
-                pred_byte = np.packbits(predicted_bits.cpu().numpy().astype(np.uint8))
+                # save correct byte to file
+                f.write(pred_byte.tobytes())
                 count_bytes += 1
 
-                #save(pred_byte)
+                # get predicted chunk (one byte)
+                inputs = np.concat(([(count_bytes + 1 - len(first_chunk)) / file_size], inputs[0][2:], [pred_byte / 255]), dtype=np.float32)
+                inputs = np.reshape(inputs, (1, -1))
+                predicted_bits, state = model(torch.from_numpy(inputs), state)
+                predicted_bits = torch.round(predicted_bits[0])
+
+                pred_byte = np.packbits(predicted_bits.cpu().numpy().astype(np.uint8)).astype(np.uint8)[0]
+
+                bit_offset -= 8
+
+            # predict last correct bytes with model
+            print(count_bytes)
+
+            for _ in range(count_bytes, file_size):
+
+                predicted_bits, state = model(torch.from_numpy(inputs), state)
+                predicted_bits = torch.round(predicted_bits[0])
+
+                pred_byte = np.packbits(predicted_bits.cpu().numpy().astype(np.uint8)).astype(np.uint8)[0]
+
+                f.write(pred_byte.tobytes())
 
 
 if __name__ == "__main__":

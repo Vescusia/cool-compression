@@ -207,7 +207,7 @@ class Attanton63(nn.Module):
         self.chunk_size = lib.CHUNK_SIZE
         self.target_size = lib.TARGET_CHUNK_SIZE
 
-        self.heads = 64
+        self.heads = 16
 
         # embedding
         self.embed_dim = self.heads * 2
@@ -217,7 +217,7 @@ class Attanton63(nn.Module):
         )
 
         self.resnet = nn.Sequential(
-            *[ResBlock(self.embed_dim, 4) for _ in range(4)]
+            *[ResBlock(self.embed_dim, 4) for _ in range(2)]
         )
 
         # MHA ResNet
