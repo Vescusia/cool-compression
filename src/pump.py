@@ -11,7 +11,7 @@ import lib
 
 
 # CHANGE THIS TO WORK
-FILE_SIZE: int = 467109
+FILE_SIZE: int | None = None
 
 
 def predict_next_byte(model: torch.nn.Module, inputs: np.ndarray) -> np.uint8:
@@ -34,14 +34,25 @@ def predict_next_byte(model: torch.nn.Module, inputs: np.ndarray) -> np.uint8:
 
 @click.command()
 @click.argument('compressed-dir-path', type=click.Path(exists=True, dir_okay=True, file_okay=False))
-@click.argument('decompressed-file-path', type=click.Path(dir_okay=False, file_okay=True), default='decompressed_data')
+@click.argument('decompressed-file-path', type=click.Path(dir_okay=False, file_okay=True))
 def inflate(compressed_dir_path: str, decompressed_file_path: str):
+    global FILE_SIZE
+
     # make paths ready
     decompressed_file_path = Path(decompressed_file_path)
     compressed_dir_path = Path(compressed_dir_path)
 
-    # get first chunk
-    inputs = np.load(compressed_dir_path / 'first_chunk.npy')
+    # get file size and first chunk
+    with open(compressed_dir_path / 'first_chunk.o', 'rb') as f:
+        FILE_SIZE = int.from_bytes(f.read(8), byteorder='big', signed=False)
+        print(f"File size: {FILE_SIZE / 1024:,.2f} kB")
+
+        # read first chunk
+        buf = bytearray()
+        while len((new_bytes := f.read())) != 0:
+            buf.extend(new_bytes)
+
+        inputs = np.frombuffer(buf, dtype=np.float32)
 
     # load model
     model = load_model(compressed_dir_path / compressed_dir_path.with_suffix('').name)
@@ -63,7 +74,7 @@ def inflate(compressed_dir_path: str, decompressed_file_path: str):
 
     with torch.no_grad():
         # initialize file loader to get relativ distances between wrong bits
-        vle_fl = VLELoader(compressed_dir_path / "encoded")
+        vle_fl = VLELoader(compressed_dir_path / 'relative_distances.npy')
 
         # get first predicted chunk (one byte)
         pred_byte = predict_next_byte(model, inputs)
@@ -72,7 +83,7 @@ def inflate(compressed_dir_path: str, decompressed_file_path: str):
         dist_to_wrong_bit = vle_fl.get_dist() - 1
 
         # loop over all relative distances
-        while vle_fl.dec_array is not None:
+        while not vle_fl.is_finished:
             # correct pred byte
             while dist_to_wrong_bit < 8:
                 # flip wrong bit

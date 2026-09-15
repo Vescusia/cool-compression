@@ -45,7 +45,7 @@ def compress(model_path: str, file_path: str, vle_bits: int, plot_file: bool):
     file_size = os.path.getsize(file_path)
 
     # two dims, list of alle relative distances between wrong predicted bits per chunk
-    relative_indexes = []
+    distances = []
 
     # initialize the file loader, set batch_size_bytes to a nice number :) (not important) BROOTTTTT
     loader = TorchFileLoader(file_path, chunk_size, batch_size_bytes, device=lib.DEVICE)
@@ -80,44 +80,48 @@ def compress(model_path: str, file_path: str, vle_bits: int, plot_file: bool):
             predicted_chunks, state = model(inputs, state)
 
             # do stuff
-            distances = rd.to_relative(predicted_chunks, targets)
-            relative_indexes.append(distances)
+            new_distances = rd.to_relative(predicted_chunks, targets)
+            distances.append(new_distances)
 
             # encode distances using variable length encoding
-            encoded_distances.append(cccp_vle.npy_encoding(distances, vle_bits))
+            encoded_distances.append(cccp_vle.npy_encoding(new_distances, vle_bits))
 
     bar.close()
 
-    # Print Evaluation Results
-    mean = np.mean([np.mean(batch_array) for batch_array in relative_indexes])
-    unique_arr = np.unique(np.concat(relative_indexes))
+    # many to one
+    distances = np.concat(distances)
+
+    # print evaluation results
+    mean = float(np.mean(distances))
+    unique_arr = np.unique(distances)
+
     print("uniques: ", len(unique_arr))
     print("mean: ", mean)
-    print("std: ", np.mean([np.std(batch_array) for batch_array in relative_indexes]))
-    print("max: ", np.max([np.max(batch_array) for batch_array in relative_indexes]))
+    print("std: ", float(np.std(distances)))
+    print("max: ", np.max([np.max(batch_array) for batch_array in distances]))
     print(f"correct / false bits:        {rd.total_correct_bits:,} / {rd.total_incorrect_bits:,} ({rd.total_correct_bits / rd.total_bits:.2%})")
     print(f"est required size:           {rd.total_incorrect_bits * (np.log2(round(mean)) + 1 + 1) / 8 + num_weights * 4:,.0f} B")
     print(f"required size (vle):         {len(np.concat(encoded_distances)):,} B")
-    print(f"required size (clementisch): {int(np.sum(np.concat(relative_indexes) + 1)) // 8:,} B")
+    print(f"required size (clementisch): {int(np.sum(distances + 1)) // 8:,} B")
     print(f"file size in B/b:            {file_size:,} / {rd.total_bits:,}")
 
     # plot relative indices
-    plot(np.concat(relative_indexes), vle_bits, display_bits=plot_file)
+    plot(distances, vle_bits, display_bits=plot_file)
 
     # build and create compression directory
-    compression_path = "compressed_data" / Path(model_path.name).with_suffix(model_path.suffix + '.ccp') / 'encoded'
-    compression_path.mkdir(parents=True, exist_ok=True)
+    compression_dir = "compressed_data" / Path(model_path.name).with_suffix(model_path.suffix + '.ccp')
+    compression_dir.mkdir(parents=True, exist_ok=True)
 
     # save first chunk
-    #print(first_chunk)
-    np.save(compression_path.parent / "first_chunk.npy", first_chunk)
+    with open(compression_dir / "first_chunk.o", "wb") as f:
+        f.write(file_size.to_bytes(8, byteorder='big', signed=False))
+        f.write(first_chunk.tobytes())
 
     # copy model to compressed dir
-    shutil.copy(model_path, Path(compression_path.parent) / model_path.name)
+    shutil.copy(model_path, Path(compression_dir) / model_path.name)
 
     # save compressed data
-    for i, encoded_array in enumerate(encoded_distances):
-        np.save(compression_path / f'{i:03}.npy', encoded_array)
+    np.save(compression_dir / "relative_distances.npy", cccp_vle.npy_encoding(distances, vle_bits))
 
 
 def plot(distances: np.ndarray, vle_bits_per_bit: int, display_bits: bool = True):
