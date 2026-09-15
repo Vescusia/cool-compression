@@ -217,7 +217,7 @@ class Attanton63(nn.Module):
         )
 
         self.resnet = nn.Sequential(
-            *[ResBlock(self.embed_dim, 4) for _ in range(4)]
+            *[ResBlock(self.embed_dim, 4) for _ in range(2)]
         )
 
         # MHA ResNet

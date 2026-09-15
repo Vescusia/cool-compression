@@ -22,7 +22,7 @@ def load_model_with_state_dict(model: torch.nn.Module, path_to_model: Path):
 
 
 def save_model(model: torch.nn.Module, save_path: Path, file_path: str):
-    name: str = file_path.split("/")[-1] + f"_{get_file_date()}.pt"
+    name: str = file_path.split("/")[-1] + f".{get_file_date()}.pt"
     save_path.mkdir(parents=True, exist_ok=True)
 
     torch.save(model.to('cpu'), save_path / name)
