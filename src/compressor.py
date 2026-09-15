@@ -90,6 +90,8 @@ def compress(model_path: str, file_path: str, vle_bits: int, plot_file: bool):
 
     # Print Evaluation Results
     mean = np.mean([np.mean(batch_array) for batch_array in relative_indexes])
+    unique_arr = np.unique(np.concat(relative_indexes))
+    print("uniques: ", len(unique_arr))
     print("mean: ", mean)
     print("std: ", np.mean([np.std(batch_array) for batch_array in relative_indexes]))
     print("max: ", np.max([np.max(batch_array) for batch_array in relative_indexes]))
