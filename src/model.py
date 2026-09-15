@@ -207,10 +207,10 @@ class Attanton63(nn.Module):
         self.chunk_size = lib.CHUNK_SIZE
         self.target_size = lib.TARGET_CHUNK_SIZE
 
-        self.heads = 64
+        self.heads = 16
 
         # embedding
-        self.embed_dim = self.heads * 2
+        self.embed_dim = self.heads
         self.embedding = nn.Sequential(
             nn.Linear(1, self.embed_dim),
             nn.LeakyReLU()

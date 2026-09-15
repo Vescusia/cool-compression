@@ -17,12 +17,11 @@ import lib
 from file_loader import TorchFileLoader
 from relative_distance import RelativeDistance
 
-BYTES_PER_STEP = 2 ** 15
+BYTES_PER_STEP = 2 ** 14
 EPOCHS = 100
 OPTIMIZER_SWAP_EPOCHS = EPOCHS // 2
 EVAL_EVERY_EPOCHS = 5
 COMPILE = True
-torch.set_float32_matmul_precision('high')
 
 
 class FilePrinter:
@@ -191,8 +190,7 @@ def evaluate(model: torch.nn.Module, loader: TorchFileLoader):
                 pred_mean_diff += abs(predicted_chunks.mean() - last_pred_mean)
 
             # calculate relative wrong bit distances
-            distances = rd.to_relative(predicted_chunks, targets)
-            if distances is not None:
+            if (distances := rd.to_relative(predicted_chunks, targets)) is not None:
                 all_distances.append(distances)
                 mean_distances.append(np.mean(distances))
                 std_distances.append(np.std(distances))
