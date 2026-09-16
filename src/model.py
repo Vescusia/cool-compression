@@ -133,7 +133,7 @@ class LongMaster(nn.Module):
 
 
 class AttantonBlock(nn.Module):
-    def __init__(self, embed_dim: int, heads: int, batch_first: bool = True, initial_alpha: float = 0.001):
+    def __init__(self, embed_dim: int, heads: int, batch_first: bool = True):
         """
         ResNet-like Block with a Multi-Head-Attention core.
         Residually adds the MHA output to the inputs and then has an FFN at the end.
@@ -142,7 +142,6 @@ class AttantonBlock(nn.Module):
         super().__init__()
 
         self.mha = nn.MultiheadAttention(embed_dim, heads, batch_first=batch_first)
-        self.alpha = nn.Parameter(torch.Tensor([initial_alpha]))  # weight of the attention output
         self.norm = nn.LayerNorm(embed_dim)
         self.ffn = nn.Linear(embed_dim, embed_dim)
         self.relu = nn.LeakyReLU()
@@ -163,7 +162,7 @@ class AttantonBlock(nn.Module):
         x_att = self.mha(q, k, v, need_weights=False)[0]
 
         # add & norm
-        res = res + x_att * self.alpha
+        res = res + x_att
         res = self.norm(res)
 
         # FFN
@@ -207,25 +206,22 @@ class Attanton63(nn.Module):
         self.chunk_size = lib.CHUNK_SIZE
         self.target_size = lib.TARGET_CHUNK_SIZE
 
-        self.heads = 16
+        self.heads = 8
 
         # embedding
-        self.embed_dim = self.heads
+        self.embed_dim = self.heads ** 2
         self.embedding = nn.Sequential(
             nn.Linear(1, self.embed_dim),
             nn.LeakyReLU()
         )
 
         self.resnet = nn.Sequential(
-            *[ResBlock(self.embed_dim, 4) for _ in range(2)]
+            *[ResBlock(self.embed_dim, 4) for _ in range(4)]
         )
 
-        # MHA ResNet
-        # self.mha_resnet = nn.ModuleList([AttantonBlock(self.embed_dim, self.heads, batch_first=True) for _ in range(1)])
-
         # MHA blocks
-        # self.encoder = AttantonBlock(self.embed_dim, self.heads, initial_alpha=1., batch_first=True)
-        # self.decoder = AttantonBlock(self.embed_dim, self.heads, initial_alpha=1., batch_first=True)
+        self.encoder = AttantonBlock(self.embed_dim, self.heads, batch_first=True)
+        self.decoder = AttantonBlock(self.embed_dim, self.heads, batch_first=True)
 
         # FC to output
         self.fc_to_output = nn.Sequential(
@@ -247,14 +243,10 @@ class Attanton63(nn.Module):
         x = self.embedding(x)  # embed
 
         # encode
-        # x = self.encoder(x)
-
-        # MHA ResNet
-        # for block in self.mha_resnet:
-        #     x = block(res=x, q=x, k=x, v=x_embed)
+        x = self.encoder(x)
 
         # decode
-        # x = self.decoder(res=x, q=x, k=x, v=x_embed)
+        x = self.decoder(x)
         x = self.resnet(x)
 
         # to target

@@ -9,5 +9,7 @@ build
 cccp/file_loader/build
 cccp/file_loader/sample.txt
 src/cool_compression.egg-info
-compressed_data
-decompressed
+
+compressed_data/
+compressed/
+decompressed/

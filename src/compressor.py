@@ -109,11 +109,11 @@ def compress(model_path: str, file_path: str, vle_bits: int, plot_file: bool):
     plot(distances, vle_bits, display_bits=plot_file)
 
     # build and create compression directory
-    compression_dir = "compressed_data" / Path(model_path.name).with_suffix(model_path.suffix + '.ccp')
+    compression_dir = 'compressed' / Path(model_path.name).with_suffix(model_path.suffix + '.ccp')
     compression_dir.mkdir(parents=True, exist_ok=True)
 
     # save first chunk
-    with open(compression_dir / "first_chunk.o", "wb") as f:
+    with open(compression_dir / 'first_chunk.o', 'wb') as f:
         f.write(file_size.to_bytes(8, byteorder='big', signed=False))
         f.write(first_chunk.tobytes())
 
@@ -121,7 +121,7 @@ def compress(model_path: str, file_path: str, vle_bits: int, plot_file: bool):
     shutil.copy(model_path, Path(compression_dir) / model_path.name)
 
     # save compressed data
-    np.save(compression_dir / "relative_distances.npy", cccp_vle.npy_encoding(distances, vle_bits))
+    np.save(compression_dir / 'relative_distances.npy', cccp_vle.npy_encoding(distances, vle_bits))
 
 
 def plot(distances: np.ndarray, vle_bits_per_bit: int, display_bits: bool = True):

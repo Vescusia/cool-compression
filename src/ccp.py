@@ -12,15 +12,18 @@ from tqdm import tqdm
 
 import cccp_vle
 import model_manager
-from model import LongMaster, Attanton63
+from model import Attanton63
 import lib
 from file_loader import TorchFileLoader
 from relative_distance import RelativeDistance
 
-BYTES_PER_STEP = 2 ** 14
+
 EPOCHS = 100
-OPTIMIZER_SWAP_EPOCHS = EPOCHS // 2
 EVAL_EVERY_EPOCHS = 5
+ADAM_LR = .0001  # Attention needs wayyyy less LR
+OPTIMIZER_SWAP_EPOCHS = EPOCHS // 2
+SGD_LR = .005
+BYTES_PER_STEP = 2 ** 15
 COMPILE = True
 
 
@@ -61,7 +64,7 @@ def main(file_path):
     model_manager.print_model_parameters(model)
 
     # define fast/first optimizer
-    optim = torch.optim.Adam(model.parameters(), lr=0.005, weight_decay=0.)
+    optim = torch.optim.Adam(model.parameters(), lr=ADAM_LR, weight_decay=0.)
 
     # define loss function
     criterion = torch.nn.BCELoss()
@@ -121,7 +124,7 @@ def main(file_path):
 
                 # swap to slow optimizer
                 if epoch == OPTIMIZER_SWAP_EPOCHS:
-                    optim = torch.optim.SGD(model.parameters(), lr=0.05, weight_decay=0.)
+                    optim = torch.optim.SGD(model.parameters(), lr=SGD_LR, weight_decay=0.)
 
                 # keep track of time spent doing stuff
                 total_train_time += time() - start_train
