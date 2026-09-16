@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 import cccp_vle
 import model_manager
-from model import Attanton63
+from model import Attanton63, ParamBuilder
 import lib
 from file_loader import TorchFileLoader
 from relative_distance import RelativeDistance
@@ -22,7 +22,7 @@ EPOCHS = 100
 EVAL_EVERY_EPOCHS = 5
 ADAM_LR = .0001  # Attention needs wayyyy less LR
 OPTIMIZER_SWAP_EPOCHS = EPOCHS // 2
-SGD_LR = .005
+SGD_LR = .0005
 BYTES_PER_STEP = 2 ** 15
 COMPILE = True
 
@@ -50,9 +50,20 @@ if __name__ == '__main__':
 @click.command()
 @click.argument('file-path', type=click.Path(exists=True, dir_okay=False))
 def main(file_path):
+    # build model params
+    params = (
+        ParamBuilder().use_encoder(False)
+        .use_decoder(False)
+        .use_resnet(True)
+        .with_embed_dim(36)
+        .with_resnet_depth(4)
+        .with_resnet_bottleneck(2)
+        .with_heads(6)
+        .build()
+              )
+
     # create model
-    model = Attanton63()
-    # model = LongMaster()
+    model = Attanton63(params)
     if COMPILE:
         model.compile()
 
@@ -89,9 +100,6 @@ def main(file_path):
             training_bar.update()
             epoch_bar.reset()
 
-            # (re-)initialize model state
-            state = model.init_state()
-
             # keep track of time spent doing stuff
             total_batch_get_time = 0.
             total_train_time = 0.
@@ -108,8 +116,7 @@ def main(file_path):
                 epoch_bar.update(len(targets))
 
                 # predict next chunk
-                predicted_chunks, state = model(inputs, state)
-                state = state.detach()
+                predicted_chunks = model(inputs)
 
                 # calculate loss
                 loss = criterion(predicted_chunks, targets)
@@ -169,9 +176,6 @@ def evaluate(model: torch.nn.Module, loader: TorchFileLoader):
     total_encoded_bytes = 0
 
     with torch.no_grad():
-        # initialize model state
-        state = model.init_state()
-
         # compute std deviation of predictions
         num_batches = 0
         pred_std = 0.
@@ -183,7 +187,7 @@ def evaluate(model: torch.nn.Module, loader: TorchFileLoader):
             num_batches += 1
 
             # predict next chunks
-            predicted_chunks, state = model(inputs, state)
+            predicted_chunks = model(inputs)
 
             # compute stochastic metrics
             pred_std += predicted_chunks.std()

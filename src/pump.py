@@ -20,8 +20,7 @@ def predict_next_byte(model: torch.nn.Module, inputs: np.ndarray) -> np.uint8:
     inputs = torch.unsqueeze(inputs, 0)
 
     # predict next byte
-    pred_bits, state = model(inputs, predict_next_byte.state)
-    predict_next_byte.state = state
+    pred_bits = model(inputs)
 
     # round and convert to uint8
     pred_bits = torch.round(pred_bits[0])
@@ -34,13 +33,16 @@ def predict_next_byte(model: torch.nn.Module, inputs: np.ndarray) -> np.uint8:
 
 @click.command()
 @click.argument('compressed-dir-path', type=click.Path(exists=True, dir_okay=True, file_okay=False))
-@click.argument('decompressed-file-path', type=click.Path(dir_okay=False, file_okay=True))
-def inflate(compressed_dir_path: str, decompressed_file_path: str):
+@click.option('--decompress-to', type=click.Path(dir_okay=False, file_okay=True))
+def inflate(compressed_dir_path: str, decompress_to: str):
     global FILE_SIZE
 
     # make paths ready
-    decompressed_file_path = Path(decompressed_file_path)
     compressed_dir_path = Path(compressed_dir_path)
+    if decompress_to is None:
+        decompressed_file_path = Path(compressed_dir_path.stem)
+    else:
+        decompressed_file_path = Path(decompress_to)
 
     # get file size and first chunk
     with open(compressed_dir_path / 'first_chunk.o', 'rb') as f:
@@ -55,9 +57,8 @@ def inflate(compressed_dir_path: str, decompressed_file_path: str):
         inputs = np.frombuffer(buf, dtype=np.float32)
 
     # load model
-    model = load_model(compressed_dir_path / compressed_dir_path.with_suffix('').name)
+    model = load_model(compressed_dir_path / 'model.pt')
     model = model.to(lib.DEVICE)
-    predict_next_byte.state = model.init_state()
 
     # open file
     f = open(decompressed_file_path, 'wb')

@@ -19,9 +19,10 @@ from relative_distance import RelativeDistance
 @click.command()
 @click.argument('model-path', type=click.Path(exists=True, dir_okay=False))
 @click.argument('file-path', type=click.Path(exists=True, dir_okay=False))
+@click.option('--compress-to', type=click.Path(exists=False))
 @click.option('--vle-bits', type=click.INT, default=2)
-@click.option('--plot-file', flag_value='plot-file', default=False, help='Display all incorrect bits of file')
-def compress(model_path: str, file_path: str, vle_bits: int, plot_file: bool):
+@click.option('--plot-file', flag_value='plot-file', help='Display all incorrect bits of file')
+def compress(model_path: str, file_path: str, compress_to: str, vle_bits: int, plot_file: bool):
     # convert to Paths
     model_path = Path(model_path)
     file_path = Path(file_path)
@@ -60,9 +61,6 @@ def compress(model_path: str, file_path: str, vle_bits: int, plot_file: bool):
     first_chunk = None
 
     with torch.no_grad():
-        # initialize model state
-        state = model.init_state()
-
         # progress bar for visual angucken
         bar = tqdm.tqdm(total=file_size, unit='B', unit_scale=True)
 
@@ -77,7 +75,7 @@ def compress(model_path: str, file_path: str, vle_bits: int, plot_file: bool):
             bar.update(len(targets))
 
             # predict next chunk
-            predicted_chunks, state = model(inputs, state)
+            predicted_chunks = model(inputs)
 
             # do stuff
             new_distances = rd.to_relative(predicted_chunks, targets)
@@ -106,10 +104,15 @@ def compress(model_path: str, file_path: str, vle_bits: int, plot_file: bool):
     print(f"file size in B/b:            {file_size:,} / {rd.total_bits:,}")
 
     # plot relative indices
-    plot(distances, vle_bits, display_bits=plot_file)
+    if plot_file:
+        print("Plotting file...")
+        plot(distances, vle_bits, display_bits=plot_file)
 
     # build and create compression directory
-    compression_dir = 'compressed' / Path(model_path.name).with_suffix(model_path.suffix + '.ccp')
+    if compress_to is None:
+        compression_dir = Path('compressed') / (file_path.stem + file_path.suffix + '.ccp')
+    else:
+        compression_dir = Path(compress_to)
     compression_dir.mkdir(parents=True, exist_ok=True)
 
     # save first chunk
@@ -118,7 +121,7 @@ def compress(model_path: str, file_path: str, vle_bits: int, plot_file: bool):
         f.write(first_chunk.tobytes())
 
     # copy model to compressed dir
-    shutil.copy(model_path, Path(compression_dir) / model_path.name)
+    shutil.copy(model_path, compression_dir / 'model.pt')
 
     # save compressed data
     np.save(compression_dir / 'relative_distances.npy', cccp_vle.npy_encoding(distances, vle_bits))
