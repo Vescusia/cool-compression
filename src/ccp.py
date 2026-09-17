@@ -52,13 +52,13 @@ if __name__ == '__main__':
 def main(file_path):
     # build model params
     params = (
-        ParamBuilder().use_encoder(False)
-        .use_decoder(False)
+        ParamBuilder().use_encoder(True)
+        .use_decoder(True)
         .use_resnet(True)
-        .with_embed_dim(36)
-        .with_resnet_depth(4)
+        .with_embed_dim(16)
+        .with_resnet_depth(2)
         .with_resnet_bottleneck(2)
-        .with_heads(6)
+        .with_heads(4)
         .build()
               )
 

@@ -21,8 +21,8 @@ from relative_distance import RelativeDistance
 @click.argument('file-path', type=click.Path(exists=True, dir_okay=False))
 @click.option('--compress-to', type=click.Path(exists=False))
 @click.option('--vle-bits', type=click.INT, default=2)
-@click.option('--plot-file', flag_value='plot-file', help='Display all incorrect bits of file')
-def compress(model_path: str, file_path: str, compress_to: str, vle_bits: int, plot_file: bool):
+@click.option('--plot', 'show_plots', flag_value='plot', help='Display all incorrect bits of file')
+def compress(model_path: str, file_path: str, compress_to: str, vle_bits: int, show_plots: bool):
     # convert to Paths
     model_path = Path(model_path)
     file_path = Path(file_path)
@@ -91,22 +91,26 @@ def compress(model_path: str, file_path: str, compress_to: str, vle_bits: int, p
 
     # print evaluation results
     mean = float(np.mean(distances))
-    unique_arr = np.unique(distances)
+    bins = np.bincount(distances)
 
-    print("uniques: ", len(unique_arr))
+    # calculate entropy of distances
+    total_entropy = calculate_entropy(bins)
+
     print("mean: ", mean)
     print("std: ", float(np.std(distances)))
     print("max: ", np.max([np.max(batch_array) for batch_array in distances]))
+    print("uniques: ", int(np.sum(bins > 0)))
     print(f"correct / false bits:        {rd.total_correct_bits:,} / {rd.total_incorrect_bits:,} ({rd.total_correct_bits / rd.total_bits:.2%})")
     print(f"est required size:           {rd.total_incorrect_bits * (np.log2(round(mean)) + 1 + 1) / 8 + num_weights * 4:,.0f} B")
     print(f"required size (vle):         {len(np.concat(encoded_distances)):,} B")
     print(f"required size (clementisch): {int(np.sum(distances + 1)) // 8:,} B")
     print(f"file size in B/b:            {file_size:,} / {rd.total_bits:,}")
+    print(f"compressed size:             {total_entropy / 8:,.0f} B ({total_entropy / rd.total_bits:.2%})")
 
     # plot relative indices
-    if plot_file:
+    if show_plots:
         print("Plotting file...")
-        plot(distances, vle_bits, display_bits=plot_file)
+        plot(distances, vle_bits)
 
     # build and create compression directory
     if compress_to is None:
@@ -127,7 +131,7 @@ def compress(model_path: str, file_path: str, compress_to: str, vle_bits: int, p
     np.save(compression_dir / 'relative_distances.npy', cccp_vle.npy_encoding(distances, vle_bits))
 
 
-def plot(distances: np.ndarray, vle_bits_per_bit: int, display_bits: bool = True):
+def plot(distances: np.ndarray, vle_bits_per_bit: int):
     # plot the distribution of distances
     counts = np.bincount(distances.ravel())
     total_count = np.sum(counts)
@@ -151,14 +155,38 @@ def plot(distances: np.ndarray, vle_bits_per_bit: int, display_bits: bool = True
     plt.show()
 
     # create a second plot with the false bits as red points
-    if display_bits:
-        a = np.ceil(np.sqrt(np.sum(distances + 1)))  # sqrt of the length of all bits in the file (plot a square)
-        distance_is = np.cumsum(distances.astype(np.uint32) + 1)
-        x_points = distance_is % a
-        y_points = distance_is // a
+    a = np.ceil(np.sqrt(np.sum(distances + 1)))  # sqrt of the length of all bits in the file (plot a square)
+    distance_is = np.cumsum(distances.astype(np.uint32) + 1)
+    x_points = distance_is % a
+    y_points = distance_is // a
 
-        plt.scatter(x_points, y_points, marker='s', color='tab:red', s=0.55)
-        plt.show()
+    plt.scatter(x_points, y_points, marker='s', color='tab:red', s=0.55)
+    plt.show()
+
+
+def calculate_entropy(bins: np.ndarray, cutoff: int = 9999) -> float:
+    total_entropy: float = 0
+
+    # cutoff any bin greater than cutoff
+    bins = np.concat(([0], bins))
+    for i, bin_ in enumerate(bins[cutoff+1:], start=cutoff+1):
+        num_jumps, overflow = divmod(i, cutoff-1)
+
+        bins[cutoff] += num_jumps * bin_
+        bins[0] += num_jumps * bin_
+        if overflow > 0:
+            bins[0] += bin_
+            bins[overflow] += bin_
+
+        bins[i] = 0
+
+    # calculate entropy
+    n = np.sum(bins)
+    for bin_ in filter(lambda x: x > 0, bins):
+        bin_entropy = bin_ * -np.log2(bin_ / n)
+        total_entropy += bin_entropy
+
+    return total_entropy
 
 
 if __name__ == "__main__":
