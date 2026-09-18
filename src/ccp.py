@@ -12,17 +12,17 @@ from tqdm import tqdm
 
 import cccp_vle
 import model_manager
-from model import Attanton63, ParamBuilder
+from model import Attanton63, ModelParams
 import lib
 from file_loader import TorchFileLoader
 from relative_distance import RelativeDistance
 
 
-EPOCHS = 100
-EVAL_EVERY_EPOCHS = 5
+EPOCHS = 500
+EVAL_EVERY_EPOCHS = 10
 ADAM_LR = .0001  # Attention needs wayyyy less LR
 OPTIMIZER_SWAP_EPOCHS = EPOCHS // 2
-SGD_LR = .0005
+SGD_LR = .0001
 BYTES_PER_STEP = 2 ** 15
 COMPILE = True
 
@@ -51,16 +51,7 @@ if __name__ == '__main__':
 @click.argument('file-path', type=click.Path(exists=True, dir_okay=False))
 def main(file_path):
     # build model params
-    params = (
-        ParamBuilder().use_encoder(True)
-        .use_decoder(True)
-        .use_resnet(True)
-        .with_embed_dim(16)
-        .with_resnet_depth(2)
-        .with_resnet_bottleneck(2)
-        .with_heads(4)
-        .build()
-              )
+    params = ModelParams(embed_dim=16, num_heads=8, resnet_bottleneck=4, architecture='ARRRR')
 
     # create model
     model = Attanton63(params)

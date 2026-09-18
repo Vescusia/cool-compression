@@ -21,16 +21,20 @@ dependencies = [
 
 [project.optional-dependencies]
 cpu = [ "torch>=2.11.0", "triton>=3.6.0" ]
-cu128 = [ "torch>=2.11.0", "triton>=3.6.0" ]
+cuda = [ "torch>=2.11.0", "triton>=3.6.0" ]
 rocm = [ "torch>=2.11.0", "triton-rocm>=3.6.0" ]
 
 [tool.uv]
 conflicts = [
     [
         { extra = "cpu" },
-        { extra = "cu128" },
+        { extra = "cuda" },
         { extra = "rocm" },
     ]
+]
+# ignore torch dependencies, as we supply torch through the extra indeces
+exclude-dependencies = [
+    { package = { name = 'mamba-ssm' }, dependencies = ['torch'] }
 ]
 
 [tool.uv.sources]
@@ -39,7 +43,7 @@ cccp_vle = { path = "cccp/cccp_vle" }
 
 torch = [
     { index = "pytorch-cpu", extra = "cpu" },
-    { index = "pytorch-cu128", extra = "cu128" },
+    { index = "pytorch-cuda", extra = "cuda" },
     { index = "pytorch-rocm", extra = "rocm" },
 ]
 triton-rocm = [
@@ -47,7 +51,7 @@ triton-rocm = [
 ]
 triton = [
     { index = "pytorch-cpu", extra = "cpu" },
-    { index = "pytorch-cu128", extra = "cu128" },
+    { index = "pytorch-cuda", extra = "cuda" },
 ]
 
 [[tool.uv.index]]
@@ -56,8 +60,8 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
+name = "pytorch-cuda"
+url = "https://download.pytorch.org/whl/cu132"
 explicit = true
 
 [[tool.uv.index]]

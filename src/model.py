@@ -1,89 +1,56 @@
+from dataclasses import dataclass
+
 import torch
 from torch import nn
 
 import lib
 
 
-class ParamBuilder:
-    _embed_dim: int | None = None
-    _heads: int | None = None
-    _encoder: bool = False
-    _decoder: bool = False
-    _resnet: bool = False
-    _resnet_bottleneck: int | None = None
-    _resnet_depth: int | None = None
-    _input_chunk_size: int = lib.INPUT_CHUNK_SIZE
-    _chunk_size: int = lib.CHUNK_SIZE
-    _target_chunk_size: int = lib.TARGET_CHUNK_SIZE
-    _chunk_shift: int = lib.CHUNK_SHIFT
+@dataclass
+class ModelParams:
+    """
+    Configure Model parameters as well as architecture
 
-    def __init__(self):
-        pass
+    :ivar architecture: String that defines the model architecture.
+        'A' -> Attention layer;
+        'F' -> FFN layer;
+        'R' -> ResNet layer;
+        'M' -> Mamba layer -
+        Example: the string 'arraf' will result in a model with an Attention "encoder",
+        two layers of ResNet, then a "decoder" and final FFN.
+    """
+    embed_dim: int
+    num_heads: int
+    resnet_bottleneck: int
+    architecture: str
+    chunk_size = lib.CHUNK_SIZE
+    input_chunk_size = lib.INPUT_CHUNK_SIZE
+    target_chunk_size = lib.TARGET_CHUNK_SIZE
+    chunk_shift = lib.CHUNK_SHIFT
 
-    def with_embed_dim(self, embed_dim: int):
-        self._embed_dim = embed_dim
-        return self
+    def build(self) -> nn.ModuleDict:
+        modules = {}
 
-    def with_heads(self, heads: int):
-        self._heads = heads
-        return self
+        for i, char in enumerate(self.architecture):
+            identifier = f"{char}-{i}"
 
-    def with_input_chunk_size(self, input_chunk_size: int):
-        self._input_chunk_size = input_chunk_size
-        return self
+            match char:
+                case 'A':
+                    modules[identifier] = AttantonBlock(self.embed_dim, self.num_heads, batch_first=True)
+                case 'F':
+                    modules[identifier] = nn.Sequential(
+                        nn.Linear(self.embed_dim, self.embed_dim),
+                        nn.LeakyReLU(),
+                    )
+                case 'R':
+                    modules[identifier] = ResBlock(self.embed_dim, self.resnet_bottleneck)
+                case 'M':
+                    exit(-1)
+                case c:
+                    print(f"'{c}' is not recognized as model architecture block")
+                    exit(-1)
 
-    def with_chunk_size(self, chunk_size: int):
-        self._chunk_size = chunk_size
-        return self
-
-    def with_target_chunk_size(self, target_chunk_size: int):
-        self._target_chunk_size = target_chunk_size
-        return self
-
-    def with_chunk_shift(self, chunk_shift: int):
-        self._chunk_shift = chunk_shift
-        return self
-
-    def use_encoder(self, use: bool):
-        self._encoder = use
-        return self
-
-    def use_decoder(self, use: bool):
-        self._decoder = use
-        return self
-
-    def use_resnet(self, use: bool):
-        self._resnet = use
-        return self
-
-    def with_resnet_bottleneck(self, bottleneck: int):
-        self._resnet_bottleneck = bottleneck
-        return self
-
-    def with_resnet_depth(self, depth: int):
-        self._resnet_depth = depth
-        return self
-
-    def build(self) -> dict:
-        if self._encoder is not None and self._decoder is not None:
-            assert self._heads is not None, "If you want to use an encoder and decoder, you have to specify the number of heads."
-
-        if self._resnet is not None:
-            assert self._resnet_bottleneck is not None and self._resnet_depth is not None, "If you want to use a ResNet, you have to specify the bottleneck and depth."
-
-        return {
-            'INPUT_CHUNK_SIZE': self._input_chunk_size,
-            'CHUNK_SIZE': self._chunk_size,
-            'TARGET_CHUNK_SIZE': self._target_chunk_size,
-            'CHUNK_SHIFT': self._chunk_shift,
-            'EMBED_DIM': self._embed_dim,
-            'HEADS': self._heads,
-            'ENCODER': self._encoder,
-            'DECODER': self._decoder,
-            'RESNET': self._resnet,
-            'RESNET_BOTTLENECK': self._resnet_bottleneck,
-            'RESNET_DEPTH': self._resnet_depth,
-        }
+        return nn.ModuleDict(modules)
 
 
 class ResBlock(nn.Module):
@@ -103,7 +70,7 @@ class ResBlock(nn.Module):
         return x
 
 
-class   AttantonBlock(nn.Module):
+class AttantonBlock(nn.Module):
     def __init__(self, embed_dim: int, heads: int, batch_first: bool = True):
         """
         ResNet-like Block with a Multi-Head-Attention core.
@@ -142,70 +109,29 @@ class   AttantonBlock(nn.Module):
         return res
 
 
-"""
-Attanton Architecture:
-
-     [SoftMax]
-         |         __
-      [Linear]      |
-         |          | stepwise transition to output dimension
-      [Linear]     _|
-         |         
-     [Decoder]    (self MHA)
-      |--|--|
-         |          __
-    [MHA Block]      |
-      |--|  |---|    |
-         |      |    | repeated multiple times
-    [MHA Block] |    |
-      |--|  |----   _|
-         |      |
-     [Encoder]  | (self MHA)
-      |--|--|   |
-         |      |
-    [Embedding]-| 
-         |
-      [input]
-"""
-
-
 class Attanton63(nn.Module):
-    def __init__(self, params: ParamBuilder | dict):
+    def __init__(self, params: ModelParams):
         super().__init__()
 
         # make params
-        if type(params) is ParamBuilder:
-            self.params = params.build()
-        else:
-            self.params = params
+        self.params = params
 
-        self.input_size = self.params['INPUT_CHUNK_SIZE']
-        self.chunk_size = self.params['CHUNK_SIZE']
-        self.target_size = self.params['TARGET_CHUNK_SIZE']
+        self.input_size = self.params.input_chunk_size
+        self.chunk_size = self.params.chunk_size
+        self.target_size = self.params.target_chunk_size
 
-        self.heads = self.params['HEADS']
+        self.heads = self.params.num_heads
 
         # embedding
-        self.embed_dim = self.params['EMBED_DIM']
+        self.embed_dim = self.params.embed_dim
         self.embedding = nn.Sequential(
             nn.Linear(1, self.embed_dim),
             nn.LeakyReLU()
         )
 
-        # ResNet
-        self.use_resnet = self.params['RESNET']
-        if self.use_resnet:
-            self.resnet = nn.Sequential(
-                *[ResBlock(self.embed_dim, self.params['RESNET_BOTTLENECK']) for _ in range(self.params['RESNET_DEPTH'])]
-            )
-
-        # MHA blocks
-        self.use_encoder = self.params['ENCODER']
-        if self.use_encoder:
-            self.encoder = AttantonBlock(self.embed_dim, self.heads, batch_first=True)
-        self.use_decoder = self.params['DECODER']
-        if self.use_decoder:
-            self.decoder = AttantonBlock(self.embed_dim, self.heads, batch_first=True)
+        # architecture
+        self.architecture = self.params.architecture
+        self.layers: nn.ModuleDict = self.params.build()
 
         # FC to output
         self.fc_to_output = nn.Sequential(
@@ -217,22 +143,14 @@ class Attanton63(nn.Module):
 
         self.sigmoid = nn.Sigmoid()
 
-    def forward(self, x_in: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         # embed
-        x = torch.unsqueeze(x_in, 2)
+        x = torch.unsqueeze(x, 2)
         x = self.embedding(x)  # embed
 
-        # encode
-        if self.use_encoder:
-            x = self.encoder(x)
-
-        # decode
-        if self.use_decoder:
-            x = self.decoder(x)
-            
-        # resnet
-        if self.use_resnet:
-            x = self.resnet(x)
+        # run model architecture
+        for layer in self.layers.values():
+            x = layer(x)
 
         # to target
         x = self.fc_to_output(x)

@@ -42,7 +42,11 @@ def print_model_parameters(model: torch.nn.Module):
     # iterate over all attributes of the model and print the respective number of parameters
     modules = model._modules
     for name, attr in modules.items():
-        if isinstance(attr, torch.nn.Module):
+        if isinstance(attr, torch.nn.ModuleDict):
+            for true_name, module in attr.items():
+                print(f"{true_name} {get_num_params(module):,}", end=' | ')
+
+        elif isinstance(attr, torch.nn.Module):
             print(f"{name} {get_num_params(attr):,}", end=' | ')
 
     print(')')
